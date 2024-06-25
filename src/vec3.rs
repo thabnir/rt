@@ -1,11 +1,11 @@
 use num_traits::Float;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::fmt::Display;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// x: red, right
-/// 
+///
 /// y: green, up
-/// 
+///
 /// z: blue, forward
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct Vec3<Scalar: Float> {
@@ -50,7 +50,6 @@ impl<Scalar: Float> Vec3<Scalar> {
     pub fn normalized(&self) -> Self {
         *self / self.length()
     }
-    
 }
 
 pub type Color<Scalar> = Vec3<Scalar>;
@@ -62,15 +61,24 @@ impl<Scalar: Float + Display> Color<Scalar> {
         let one = Scalar::from(1.0).unwrap();
 
         if self.x < Scalar::neg_zero() || self.x > one {
-            panic!("Bad color value for red/x: {}. Value should be between 0.0 and 1.0", self.x);
+            panic!(
+                "Bad color value for red/x: {}. Value should be between 0.0 and 1.0",
+                self.x
+            );
         }
 
         if self.y < Scalar::neg_zero() || self.y > one {
-            panic!("Bad color value for green/y: {}. Value should be between 0.0 and 1.0", self.y);
+            panic!(
+                "Bad color value for green/y: {}. Value should be between 0.0 and 1.0",
+                self.y
+            );
         }
 
         if self.z < Scalar::neg_zero() || self.z > one {
-            panic!("Bad color value for blue/z: {}. Value should be between 0.0 and 1.0", self.z);
+            panic!(
+                "Bad color value for blue/z: {}. Value should be between 0.0 and 1.0",
+                self.z
+            );
         }
         let ppm_r = Scalar::from(self.x * cmax).unwrap().to_u8().unwrap();
         let ppm_g = Scalar::from(self.y * cmax).unwrap().to_u8().unwrap();
@@ -79,7 +87,6 @@ impl<Scalar: Float + Display> Color<Scalar> {
         string
     }
 }
-
 
 impl<Scalar: Float> Add for Vec3<Scalar> {
     type Output = Self;
@@ -176,8 +183,8 @@ impl<Scalar: Float> Neg for Vec3<Scalar> {
 // Tests
 #[cfg(test)]
 mod tests {
-    use approx::assert_abs_diff_eq;
     use super::*;
+    use approx::assert_abs_diff_eq;
 
     #[test]
     fn test_new() {
