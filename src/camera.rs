@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    hittable::{Hittable, Sphere, World},
+    hittable::{Hittable, World},
     ray::Ray,
     vec3::{Color, Vec3},
 };
@@ -16,7 +16,7 @@ use rand::{
 };
 use rayon::prelude::*;
 
-pub type Float = f64;
+pub type Float = f32;
 pub type UInt = u16;
 
 pub const T_MIN: Float = 0.0; // maybe 0
@@ -42,6 +42,11 @@ pub struct Image {
     colors: Vec<Pixel>,
     width: u16,
     height: u16,
+}
+
+/// Take a positive color value in linear space from 0.0 to 1.0 and convert it to gamma 2
+pub fn linear_to_gamma<Scalar: num_traits::Float>(linear_color_value: Scalar) -> Scalar {
+    linear_color_value.sqrt()
 }
 
 impl Camera {
@@ -99,19 +104,16 @@ impl Camera {
     }
 
     fn raycast(&self, world: &World<Float>, ray: &Ray<Float>, max_depth: u16) -> Color<Float> {
-        if let Some(hit) = world.hit(ray, &self.t_range) {
-            let bounce_dir = Sphere::random_on_hemisphere(&hit.normal);
+        if let Some(hit) = world.hit(ray, &(0.001..self.t_range.end)) {
+            // let bounce_dir = Sphere::random_on_hemisphere(&hit.normal); // even light diffusion
+            let bounce_dir = hit.normal + Vec3::random_unit(&mut thread_rng()); // lambertian light diffusion (better)
             let bounce_ray = Ray::new(hit.point, bounce_dir);
 
             // recursively send out new rays as they bounce until the depth limit
             if max_depth > 0 {
                 let bounce = self.raycast(world, &bounce_ray, max_depth - 1);
-                return bounce * 0.5; // return half the bounced color
+                return bounce * 0.2; // return half the bounced color
             }
-
-            // if hit.is_front_face {
-            //     return (hit.normal + Vec3::one()) / 2.0;
-            // }
             return Color::new(0.0, 0.0, 0.0);
         }
         let unit_dir = ray.direction.normalized();

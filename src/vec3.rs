@@ -6,6 +6,8 @@ use std::fmt::Display;
 use std::iter::Sum;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
+use crate::camera::linear_to_gamma;
+
 /// x: red, right
 ///
 /// y: green, up
@@ -117,9 +119,12 @@ impl<Scalar: Float + Display> Color<Scalar> {
                 self.z
             );
         }
-        let ppm_r = (self.x * cmax).to_u8().unwrap();
-        let ppm_g = (self.y * cmax).to_u8().unwrap();
-        let ppm_b = (self.z * cmax).to_u8().unwrap();
+        let r = linear_to_gamma(self.x) * cmax;
+        let g = linear_to_gamma(self.y) * cmax;
+        let b = linear_to_gamma(self.z) * cmax;
+        let ppm_r = r.to_u8().unwrap();
+        let ppm_g = g.to_u8().unwrap();
+        let ppm_b = b.to_u8().unwrap();
         let string = format!("{} {} {}", ppm_r, ppm_g, ppm_b);
         string
     }

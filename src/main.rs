@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod hittable;
+pub mod material;
 pub mod ray;
 pub mod vec3;
 
@@ -19,11 +20,11 @@ fn main() -> std::io::Result<()> {
 
     let image_width = 800;
     let image_height = 600;
-    let samples_per_pixel = 100;
+    let samples_per_pixel = 4000;
     let max_depth = 50;
     let camera = Camera::new(
         Vec3::new(0.0, 0.0, 0.0),
-        1.7,
+        0.5,
         image_width,
         image_height,
         samples_per_pixel,
