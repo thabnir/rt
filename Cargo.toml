@@ -4,8 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-indicatif = "0.17.8"
+indicatif = { version = "0.17.8", features = ["rayon"] }
 num-traits = "0.2.19"
+rayon = "1.10.0"
+rand = "0.8.5"
 
 [dev-dependencies]
 approx = "0.5.1"
+criterion = "0.5.1"
+
+[[bench]]
+name = "bench"
+harness = false
