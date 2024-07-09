@@ -1,4 +1,9 @@
-use crate::vec3::{Point3, Vec3};
+use std::sync::Arc;
+
+use crate::{
+    material::Scatter,
+    vec3::{Point3, Vec3},
+};
 use num_traits::Float;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -17,10 +22,11 @@ impl<Scalar: Float> Ray<Scalar> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub struct HitRecord<Scalar> {
     pub point: Point3<Scalar>,
     pub normal: Vec3<Scalar>,
+    pub material: Arc<dyn Scatter<Scalar> + Send + Sync>,
     pub t: Scalar,
     pub is_front_face: bool,
 }
@@ -30,11 +36,13 @@ impl<Scalar: Float> HitRecord<Scalar> {
         point: Point3<Scalar>,
         normal: Vec3<Scalar>,
         t: Scalar,
+        material: Arc<dyn Scatter<Scalar> + Send + Sync>,
         is_front_face: bool,
     ) -> Self {
         HitRecord {
             point,
             normal,
+            material,
             t,
             is_front_face,
         }
@@ -42,14 +50,5 @@ impl<Scalar: Float> HitRecord<Scalar> {
 
     pub fn is_front_face(ray: &Ray<Scalar>, outward_normal: Vec3<Scalar>) -> bool {
         ray.direction.dot(outward_normal) < Scalar::zero()
-    }
-
-    /// `outward_normal` is assumed to be normalized already (unit length)
-    pub fn face_normal(is_front_face: bool, outward_normal: Vec3<Scalar>) -> Vec3<Scalar> {
-        if is_front_face {
-            outward_normal
-        } else {
-            -outward_normal
-        }
     }
 }

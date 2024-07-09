@@ -59,6 +59,19 @@ impl<Scalar: Float + SampleUniform> Vec3<Scalar> {
     }
 }
 
+/// Component-wise Vector-Vector multiplication (for colors)
+impl<Scalar: Mul<Output = Scalar>> Mul<Color<Scalar>> for Color<Scalar> {
+    type Output = Color<Scalar>;
+
+    fn mul(self, rhs: Color<Scalar>) -> Self::Output {
+        Vec3 {
+            x: self.x * rhs.x,
+            y: self.y * rhs.y,
+            z: self.z * rhs.z,
+        }
+    }
+}
+
 impl<Scalar: Add<Output = Scalar> + Sub<Output = Scalar> + Mul<Output = Scalar> + Copy>
     Vec3<Scalar>
 {
@@ -87,9 +100,29 @@ impl<Scalar: Float> Vec3<Scalar> {
     pub fn normalized(self) -> Self {
         self / self.length()
     }
+
+    pub fn near_zero(&self) -> bool {
+        let e = Scalar::epsilon().sqrt(); // maybe change this? decide later
+        self.x.abs() < e && self.y.abs() < e && self.z.abs() < e
+    }
+
+    pub fn distance(&self, point: Point3<Scalar>) -> Scalar {
+        (*self - point).length()
+    }
 }
 
 pub type Color<T> = Vec3<T>;
+
+impl<T: Float + SampleUniform> Color<T> {
+    pub fn rand_color<R: Rng + ?Sized>(rng: &mut R) -> Self {
+        let range = Uniform::from(T::zero()..=T::one());
+        Color {
+            x: range.sample(rng),
+            y: range.sample(rng),
+            z: range.sample(rng),
+        }
+    }
+}
 pub type Point3<T> = Vec3<T>;
 
 /// returns a color string of the form ""
@@ -122,9 +155,15 @@ impl<Scalar: Float + Display> Color<Scalar> {
         let r = linear_to_gamma(self.x) * cmax;
         let g = linear_to_gamma(self.y) * cmax;
         let b = linear_to_gamma(self.z) * cmax;
-        let ppm_r = r.to_u8().unwrap();
-        let ppm_g = g.to_u8().unwrap();
-        let ppm_b = b.to_u8().unwrap();
+        let ppm_r = r
+            .to_u8()
+            .unwrap_or_else(|| panic!("red couldn't be converted from {} to u8", r));
+        let ppm_g = g
+            .to_u8()
+            .unwrap_or_else(|| panic!("green couldn't be converted from {} to u8", r));
+        let ppm_b = b
+            .to_u8()
+            .unwrap_or_else(|| panic!("blue couldn't be converted from {} to u8", r));
         let string = format!("{} {} {}", ppm_r, ppm_g, ppm_b);
         string
     }
@@ -396,5 +435,33 @@ mod tests {
         assert_abs_diff_eq!(result.x, 0.0);
         assert_abs_diff_eq!(result.y, 0.0);
         assert_abs_diff_eq!(result.z, 0.0);
+    }
+
+    #[test]
+    fn test_near_zero_f32() {
+        let e: f32 = f32::EPSILON;
+        let x = Vec3::new(e, e, e);
+        assert!(x.near_zero());
+    }
+
+    #[test]
+    fn test_near_zero_f64() {
+        let e: f64 = f64::EPSILON;
+        let x = Vec3::new(e, e, e);
+        assert!(x.near_zero());
+    }
+
+    #[test]
+    fn test_not_near_zero_f32() {
+        let e: f32 = f32::EPSILON;
+        let x = Vec3::new(e, 0.01, e);
+        assert!(!x.near_zero());
+    }
+
+    #[test]
+    fn test_not_near_zero_f64() {
+        let e: f64 = f64::EPSILON;
+        let x = Vec3::new(e, e, 0.1);
+        assert!(!x.near_zero());
     }
 }

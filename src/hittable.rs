@@ -1,18 +1,18 @@
-use crate::{ray::HitRecord, vec3::Vec3};
-use std::ops::Range;
+use crate::{material::Scatter, ray::HitRecord, vec3::Vec3};
+use std::{ops::Range, sync::Arc};
 
 use num_traits::Float;
 use rand::{distributions::uniform::SampleUniform, thread_rng};
 
 use crate::{ray::Ray, vec3::Point3};
 
-pub trait Hittable<Scalar: Float>: Send + Sync {
+pub trait Hit<Scalar: Float>: Send + Sync {
     fn hit(&self, ray: &Ray<Scalar>, range: &Range<Scalar>) -> Option<HitRecord<Scalar>>;
 }
 
-pub type World<Scalar> = Vec<Box<dyn Hittable<Scalar>>>;
+pub type World<Scalar> = Vec<Box<dyn Hit<Scalar>>>;
 
-impl<Scalar: Float + Send + Sync> Hittable<Scalar> for World<Scalar> {
+impl<Scalar: Float + Send + Sync> Hit<Scalar> for World<Scalar> {
     /// Returns nearest hit to camera for the given ray within the given view range
     fn hit(&self, ray: &Ray<Scalar>, range: &Range<Scalar>) -> Option<HitRecord<Scalar>> {
         // Save nearest collision to camera to avoid checking for collisions against objects obscured by those we've already hit
@@ -30,15 +30,25 @@ impl<Scalar: Float + Send + Sync> Hittable<Scalar> for World<Scalar> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Clone)]
 pub struct Sphere<Scalar> {
     pub center: Point3<Scalar>,
     pub radius: Scalar,
+    pub material: Arc<dyn Scatter<Scalar> + Send + Sync>,
 }
 
-impl<T> Sphere<T> {
-    pub fn new(center: Point3<T>, radius: T) -> Self {
-        Sphere { center, radius }
+impl<Scalar: Float + Send + Sync> Sphere<Scalar> {
+    pub fn new(
+        center: Point3<Scalar>,
+        radius: Scalar,
+        material: impl Scatter<Scalar> + 'static,
+    ) -> Self {
+        let radius = radius.max(Scalar::zero());
+        Sphere {
+            center,
+            radius,
+            material: Arc::new(material),
+        }
     }
 }
 
@@ -52,17 +62,19 @@ impl<T: Float + SampleUniform> Sphere<T> {
     }
 }
 
-impl<Scalar: Float + Send + Sync> Hittable<Scalar> for Sphere<Scalar> {
+impl<Scalar: Float + Send + Sync> Hit<Scalar> for Sphere<Scalar> {
     fn hit(&self, ray: &Ray<Scalar>, range: &Range<Scalar>) -> Option<HitRecord<Scalar>> {
         let oc = self.center - ray.origin;
         let a = ray.direction.length_squared();
         let h = ray.direction.dot(oc);
         let c = oc.length_squared() - self.radius * self.radius;
+
         let discriminant = h * h - a * c;
         if discriminant < Scalar::zero() {
             return None; // no point hit on the sphere
         }
-        let sqrt_disc = Float::sqrt(discriminant);
+
+        let sqrt_disc = discriminant.sqrt();
         // Find either root (hit point) in range
         let mut t = (h - sqrt_disc) / a; // min root
         if !(range).contains(&t) {
@@ -71,9 +83,20 @@ impl<Scalar: Float + Send + Sync> Hittable<Scalar> for Sphere<Scalar> {
                 return None; // both out of range
             }
         }
+
         let point_on_sphere = ray.at(t);
-        let normal = (point_on_sphere - self.center) / self.radius;
+        let mut normal = (point_on_sphere - self.center) / self.radius;
         let is_front_face = HitRecord::is_front_face(ray, normal);
-        Some(HitRecord::new(point_on_sphere, normal, t, is_front_face))
+        if !is_front_face {
+            normal = -normal; // Set the normal to always face outward
+        }
+
+        Some(HitRecord::new(
+            point_on_sphere,
+            normal,
+            t,
+            self.material.clone(), // clones the Arc, not the material
+            is_front_face,
+        ))
     }
 }

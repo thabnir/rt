@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    hittable::{Hittable, World},
+    hittable::{Hit, World},
     ray::Ray,
     vec3::{Color, Vec3},
 };
@@ -105,20 +105,22 @@ impl Camera {
 
     fn raycast(&self, world: &World<Float>, ray: &Ray<Float>, max_depth: u16) -> Color<Float> {
         if let Some(hit) = world.hit(ray, &(0.001..self.t_range.end)) {
-            // let bounce_dir = Sphere::random_on_hemisphere(&hit.normal); // even light diffusion
-            let bounce_dir = hit.normal + Vec3::random_unit(&mut thread_rng()); // lambertian light diffusion (better)
-            let bounce_ray = Ray::new(hit.point, bounce_dir);
-
-            // recursively send out new rays as they bounce until the depth limit
-            if max_depth > 0 {
-                let bounce = self.raycast(world, &bounce_ray, max_depth - 1);
-                return bounce * 0.2; // return half the bounced color
+            if let Some((attenuation, scattered)) = hit.material.scatter(ray, &hit) {
+                // Recursively send out new rays as they bounce until the depth limit
+                if max_depth > 0 {
+                    attenuation * self.raycast(world, &scattered, max_depth - 1)
+                } else {
+                    Color::new(1.0, 0.0, 0.0) // Bounce limit reached
+                }
+            } else {
+                Color::new(0.0, 0.0, 0.0) // No ray collision -> void -> return black
+                                          // Don't think this should ever actually happen bc skybox
             }
-            return Color::new(0.0, 0.0, 0.0);
+        } else {
+            let unit_dir = ray.direction.normalized();
+            let a = (unit_dir.y + 1.0) / 2.0;
+            Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
         }
-        let unit_dir = ray.direction.normalized();
-        let a = (unit_dir.y + 1.0) / 2.0;
-        Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
     }
 
     pub fn render(&self, world: &World<Float>, progress_bar: ProgressBar) -> Image {
