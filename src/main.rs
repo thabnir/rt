@@ -14,96 +14,93 @@ use std::time::Instant;
 use vec3::{Color, Point3, Vec3};
 
 #[allow(dead_code)]
-fn gen_scene(num_spheres: u16, min_radius: Float, max_radius: Float) -> World<Float> {
-    // TODO: make this thing not suck! No sphere collisions! More reasonable spacing!
+fn gen_scene(grid_i: i16, grid_j: i16) -> World<Float> {
     let mut rng = thread_rng();
     let mut world: World<Float> = Vec::new();
-    // let lambert = Lambertian {
-    //     albedo: Color::new(0.6, 0.6, 0.6),
-    // };
-    // let ground = Box::new(Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0, lambert));
-    // world.push(ground);
-    for _ in 0..num_spheres {
-        let radius = rng.gen_range(min_radius..=max_radius);
-        let min_pos = -50.0;
-        let max_pos = 50.0;
-        let albedo: Color<Float> = Color::rand_color(&mut rng);
-        let mut position: Point3<Float> = Vec3::random(&mut rng, min_pos, max_pos);
-        while position.distance(Vec3::zero()) < radius + 2.0 {
-            position = Vec3::random(&mut rng, min_pos, max_pos);
-            position.z = -position.z.abs();
+    let ground_mat = Lambertian {
+        albedo: Color::new(0.5, 0.5, 0.5),
+    };
+    let ground = Box::new(Sphere::new(
+        Vec3::new(0.0, -1000.0, -1.0),
+        1000.0,
+        ground_mat,
+    ));
+    world.push(ground);
+    let mat1 = Dielectric {
+        refractive_index: 1.5,
+    };
+    let p1 = Point3::new(0.0, 1.0, 0.0);
+    world.push(Box::new(Sphere::new(p1, 1.0, mat1)));
+    let mat2 = Lambertian {
+        albedo: Color::new(0.4, 0.2, 0.1),
+    };
+    let p2 = Point3::new(-4.0, 1.0, 0.0);
+    world.push(Box::new(Sphere::new(p2, 1.0, mat2)));
+    let mat3 = Metal {
+        albedo: Color::new(0.7, 0.6, 0.5),
+        fuzz: 0.0,
+    };
+    let p3 = Point3::new(4.0, 1.0, 0.0);
+    world.push(Box::new(Sphere::new(p3, 1.0, mat3)));
+
+    for i in -grid_i..grid_i {
+        for j in -grid_j..grid_j {
+            let radius = 0.2;
+            let albedo: Color<Float> = Color::rand_color(&mut rng);
+            let offset: Point3<Float> = Vec3 {
+                x: rng.gen_range(0.0..0.9),
+                y: 0.0,
+                z: rng.gen_range(0.0..0.9),
+            };
+            let i_offset = 1.0;
+            let j_offset = 1.0;
+            let center = Point3::new(i as Float * i_offset, radius, j as Float * j_offset) + offset;
+            if center.distance(p1) < 1.2 || center.distance(p2) < 1.2 || center.distance(p3) < 1.2 {
+                continue;
+            }
+            let choose = rng.gen_range(0.0..1.0);
+            if choose > (0.95) {
+                let mat = Dielectric {
+                    refractive_index: 1.5,
+                };
+                let sphere = Box::new(Sphere::new(center, radius, mat));
+                world.push(sphere);
+            } else if choose > 0.8 {
+                let fuzz = rng.gen_range(0.0..0.5);
+                let mat = Metal { albedo, fuzz };
+                let sphere = Box::new(Sphere::new(center, radius, mat));
+                world.push(sphere);
+            } else {
+                let mat = Lambertian { albedo };
+                let sphere = Box::new(Sphere::new(center, radius, mat));
+                world.push(sphere);
+            };
         }
-        if rng.gen_bool(0.5) {
-            let mat = Lambertian { albedo };
-            let sphere = Box::new(Sphere::new(position, radius, mat));
-            world.push(sphere);
-        } else {
-            let fuzz = rng.gen_range(0.0..1.0);
-            let mat = Metal { albedo, fuzz };
-            let sphere = Box::new(Sphere::new(position, radius, mat));
-            world.push(sphere);
-        };
     }
     world
 }
 
 fn main() -> std::io::Result<()> {
-    let mut world: World<Float> = Vec::new();
+    let world: World<Float> = gen_scene(20, 20);
 
-    let material_ground = Lambertian {
-        albedo: Color::new(0.8, 0.8, 0.0),
-    };
-    let material_center = Lambertian {
-        albedo: Color::new(0.1, 0.2, 0.5),
-    };
-    let material_right = Metal {
-        albedo: Color::new(0.8, 0.6, 0.2),
-        fuzz: 0.6,
-    };
-    let glass = Dielectric {
-        refractive_index: 1.5,
-    };
-    let bubble = Dielectric {
-        refractive_index: 1.0 / 1.5,
-    };
-    world.push(Box::new(Sphere::new(
-        Vec3::new(0.0, -100.5, -1.0),
-        100.0,
-        material_ground,
-    )));
-    world.push(Box::new(Sphere::new(
-        Vec3::new(0.0, 0.0, -1.2),
-        0.5,
-        material_center,
-    )));
-    world.push(Box::new(Sphere::new(
-        Vec3::new(-1.0, 0.0, -1.0),
-        0.5,
-        glass,
-    )));
-    world.push(Box::new(Sphere::new(
-        Vec3::new(-1.0, 0.0, -1.0),
-        0.4,
-        bubble,
-    )));
-    world.push(Box::new(Sphere::new(
-        Vec3::new(1.0, 0.0, -1.0),
-        0.5,
-        material_right,
-    )));
+    let image_width = 1920;
+    let image_height = 1080;
+    let samples_per_pixel = 1000;
+    let max_depth = 10;
+    let defocus_angle = 0.6;
+    let focus_distance = 10.0;
 
-    let image_width = 800;
-    let image_height = 600;
-    let samples_per_pixel = 100;
-    let max_depth = 100;
     let camera = Camera::new(
+        Vec3::new(12.0, 2.0, 3.0),
         Vec3::new(0.0, 0.0, 0.0),
-        0.5,
+        Vec3::new(0.0, 1.0, 0.0),
+        focus_distance,
+        defocus_angle,
         image_width,
         image_height,
         samples_per_pixel,
         max_depth,
-        2.0,
+        20.0,
         0.0..Float::MAX,
     );
 

@@ -57,6 +57,20 @@ impl<Scalar: Float + SampleUniform> Vec3<Scalar> {
     pub fn random_unit<R: Rng + ?Sized>(rng: &mut R) -> Self {
         Self::random(rng, -Scalar::one(), Scalar::one()).normalized()
     }
+
+    /// Returns random point in the x-y unit disc
+    pub fn random_in_unit_disc<R: Rng + ?Sized>(rng: &mut R) -> Self {
+        let mut v = Vec3::one();
+        let range = -Scalar::one()..Scalar::one();
+        while v.length_squared() > Scalar::one() {
+            v = Self {
+                x: rng.gen_range(range.clone()),
+                y: rng.gen_range(range.clone()),
+                z: Scalar::zero(),
+            };
+        }
+        v
+    }
 }
 
 /// Component-wise Vector-Vector multiplication (for colors)

@@ -1,13 +1,7 @@
-use std::{
-    fs::File,
-    io::{BufWriter, Write},
-    ops::Range,
-};
-
 use crate::{
     hittable::{Hit, World},
     ray::Ray,
-    vec3::{Color, Vec3},
+    vec3::{Color, Point3, Vec3},
 };
 use indicatif::{ParallelProgressIterator, ProgressBar};
 use rand::{
@@ -15,25 +9,30 @@ use rand::{
     thread_rng,
 };
 use rayon::prelude::*;
+use std::{
+    fs::File,
+    io::{BufWriter, Write},
+    ops::Range,
+};
 
 pub type Float = f32;
-pub type UInt = u16;
 
-pub const T_MIN: Float = 0.0; // maybe 0
+// Min and max distances for rendering
+pub const T_MIN: Float = 0.0;
 pub const T_MAX: Float = Float::MAX;
 
 pub struct Camera {
     center: Vec3<Float>,
-    // focal_length: Float,
     image_width: u16,
     image_height: u16,
     samples_per_pixel: u16,
     max_depth: u16,
-    // viewport_width: Float,
-    // viewport_height: Float,
+    defocus_angle: Float,
+    defocus_disk_u: Vec3<Float>,
+    defocus_disk_v: Vec3<Float>,
     pixel00_loc: Vec3<Float>,
-    pixel_dx: Vec3<Float>,
-    pixel_dy: Vec3<Float>,
+    pixel_du: Vec3<Float>,
+    pixel_dv: Vec3<Float>,
     t_range: Range<Float>,
 }
 
@@ -50,46 +49,63 @@ pub fn linear_to_gamma<Scalar: num_traits::Float>(linear_color_value: Scalar) ->
 }
 
 impl Camera {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        center: Vec3<Float>,
-        focal_length: Float,
+        lookfrom: Vec3<Float>,
+        lookat: Vec3<Float>,
+        up: Vec3<Float>,
+        focus_distance: Float, // Distance from camera's center to plane of perfect focus
+        defocus_angle: Float,  // Variation of angle of rays through each pixel
         image_width: u16,
         image_height: u16,
         samples_per_pixel: u16,
         max_depth: u16,
-        viewport_height: Float,
+        vertical_fov: Float,
         t_range: Range<Float>,
     ) -> Self {
-        let aspect_ratio = image_width as Float / image_height as Float;
-        let viewport_width = viewport_height * aspect_ratio;
-        // Displacement vectors from left to right and top to bottom of viewport
-        let viewport_x = Vec3::new(viewport_width, 0.0, 0.0);
-        let viewport_y = Vec3::new(0.0, -viewport_height, 0.0);
+        let w = (lookfrom - lookat).normalized();
+        let u = up.cross(w).normalized();
+        let v = w.cross(u);
+        let h = (vertical_fov.to_radians() / 2.0).tan();
+        let viewport_height = 2.0 * h * focus_distance;
 
         // Viewport distance between pixels
-        let pixel_dx = viewport_x / (image_width as Float);
-        let pixel_dy = viewport_y / (image_height as Float);
+        let aspect_ratio = image_width as Float / image_height as Float;
+        let viewport_width = viewport_height * aspect_ratio;
 
-        let vp_upper_left =
-            center - Vec3::new(0.0, 0.0, focal_length) - viewport_x / 2.0 - viewport_y / 2.0;
+        // Displacement vectors from left to right and top to bottom of viewport
+        let viewport_u = u * viewport_width; // Left to right across horizontal edge
+        let viewport_v = -v * viewport_height; // Down vertical edge
 
-        let pixel00_loc = vp_upper_left + (pixel_dx + pixel_dy) / 2.0;
+        let pixel_du = viewport_u / (image_width as Float);
+        let pixel_dv = viewport_v / (image_height as Float);
+
+        let vp_upper_left = lookfrom - (w * focus_distance) - viewport_u / 2.0 - viewport_v / 2.0;
+
+        // Top left pixel center
+        let pixel00_loc = vp_upper_left + (pixel_du + pixel_dv) / 2.0;
+
+        let defocus_radius = focus_distance * (defocus_angle / 2.0).to_radians().tan();
+        let defocus_disk_u = u * defocus_radius;
+        let defocus_disk_v = v * defocus_radius;
         Camera {
-            center,
-            // focal_length,
+            center: lookfrom,
+            defocus_angle,
+            defocus_disk_u,
+            defocus_disk_v,
             image_width,
             image_height,
             samples_per_pixel,
             max_depth,
-            // viewport_width,
-            // viewport_height,
             pixel00_loc,
-            pixel_dx,
-            pixel_dy,
+            pixel_du,
+            pixel_dv,
             t_range,
         }
     }
 
+    /// Return a camera ray originating from the defocus disk and directed at a random
+    /// point around the pixel location `x, y`.
     fn get_ray(&self, x: u16, y: u16) -> Ray<Float> {
         // Offsets uniformly distributed within 1/2 pixel ensure 100% coverage with 0 overlap
         let range = Uniform::from(-0.5..0.5);
@@ -97,10 +113,15 @@ impl Camera {
         let x_offset: Float = range.sample(&mut rng);
         let y_offset: Float = range.sample(&mut rng);
         let pixel_sample = self.pixel00_loc
-            + (self.pixel_dx * (x as Float + x_offset))
-            + (self.pixel_dy * (y as Float + y_offset));
-        let ray_dir = pixel_sample - self.center;
-        Ray::new(self.center, ray_dir)
+            + (self.pixel_du * (x as Float + x_offset))
+            + (self.pixel_dv * (y as Float + y_offset));
+        let ray_origin = if self.defocus_angle <= 0.0 {
+            self.center // no blur
+        } else {
+            self.defocus_disk_sample() // random blur
+        };
+        let ray_dir = pixel_sample - ray_origin;
+        Ray::new(ray_origin, ray_dir)
     }
 
     fn raycast(&self, world: &World<Float>, ray: &Ray<Float>, max_depth: u16) -> Color<Float> {
@@ -164,7 +185,7 @@ impl Camera {
         buf_writer.write_all(header.as_bytes())?;
 
         // Write the colors to the buffer
-        // Obvious room for optimization here but whatever
+        // Obvious room for optimization here but whatever, it's fast enough as is
         // (e.g. make a big string in advance before writing)
         for (x, _y, color) in image.colors {
             buf_writer.write_all(color.as_rgb().as_bytes())?;
@@ -182,5 +203,11 @@ impl Camera {
             pb.finish();
         }
         Ok(())
+    }
+
+    /// Returns a random point in the camera's defocus disk
+    fn defocus_disk_sample(&self) -> Point3<Float> {
+        let p: Vec3<Float> = Vec3::random_in_unit_disc(&mut thread_rng());
+        self.center + (self.defocus_disk_u * p.x) + (self.defocus_disk_v * p.y)
     }
 }

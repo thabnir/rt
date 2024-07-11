@@ -1,10 +1,9 @@
-use num_traits::Float;
-use rand::{distributions::uniform::SampleUniform, thread_rng, Rng};
-
 use crate::{
     ray::{HitRecord, Ray},
     vec3::{Color, Vec3},
 };
+use num_traits::Float;
+use rand::{distributions::uniform::SampleUniform, thread_rng, Rng};
 
 pub trait Scatter<Scalar: Copy + Clone>: Send + Sync {
     fn scatter(
