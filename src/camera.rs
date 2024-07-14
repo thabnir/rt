@@ -1,9 +1,11 @@
 use crate::{
     hittable::{Hit, World},
     ray::Ray,
-    vec3::{Color, Point3, Vec3},
+    vec3_ext::Vec3Ext,
 };
+use glam::Vec3;
 use indicatif::{ParallelProgressIterator, ProgressBar};
+use itertools::Itertools;
 use rand::{
     distributions::{Distribution, Uniform},
     thread_rng,
@@ -22,21 +24,21 @@ pub const T_MIN: Float = 0.0;
 pub const T_MAX: Float = Float::MAX;
 
 pub struct Camera {
-    center: Vec3<Float>,
+    center: Vec3,
     image_width: u16,
     image_height: u16,
     samples_per_pixel: u16,
     max_depth: u16,
     defocus_angle: Float,
-    defocus_disk_u: Vec3<Float>,
-    defocus_disk_v: Vec3<Float>,
-    pixel00_loc: Vec3<Float>,
-    pixel_du: Vec3<Float>,
-    pixel_dv: Vec3<Float>,
+    defocus_disk_u: Vec3,
+    defocus_disk_v: Vec3,
+    pixel00_loc: Vec3,
+    pixel_du: Vec3,
+    pixel_dv: Vec3,
     t_range: Range<Float>,
 }
 
-pub type Pixel = (u16, u16, Color<Float>);
+pub type Pixel = (u16, u16, Vec3);
 pub struct Image {
     colors: Vec<Pixel>,
     width: u16,
@@ -44,16 +46,16 @@ pub struct Image {
 }
 
 /// Take a positive color value in linear space from 0.0 to 1.0 and convert it to gamma 2
-pub fn linear_to_gamma<Scalar: num_traits::Float>(linear_color_value: Scalar) -> Scalar {
+pub fn linear_to_gamma(linear_color_value: Float) -> Float {
     linear_color_value.sqrt()
 }
 
 impl Camera {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        lookfrom: Vec3<Float>,
-        lookat: Vec3<Float>,
-        up: Vec3<Float>,
+        lookfrom: Vec3,
+        lookat: Vec3,
+        up: Vec3,
         focus_distance: Float, // Distance from camera's center to plane of perfect focus
         defocus_angle: Float,  // Variation of angle of rays through each pixel
         image_width: u16,
@@ -63,8 +65,8 @@ impl Camera {
         vertical_fov: Float,
         t_range: Range<Float>,
     ) -> Self {
-        let w = (lookfrom - lookat).normalized();
-        let u = up.cross(w).normalized();
+        let w = (lookfrom - lookat).normalize();
+        let u = up.cross(w).normalize();
         let v = w.cross(u);
         let h = (vertical_fov.to_radians() / 2.0).tan();
         let viewport_height = 2.0 * h * focus_distance;
@@ -106,7 +108,7 @@ impl Camera {
 
     /// Return a camera ray originating from the defocus disk and directed at a random
     /// point around the pixel location `x, y`.
-    fn get_ray(&self, x: u16, y: u16) -> Ray<Float> {
+    fn get_ray(&self, x: u16, y: u16) -> Ray {
         // Offsets uniformly distributed within 1/2 pixel ensure 100% coverage with 0 overlap
         let range = Uniform::from(-0.5..0.5);
         let mut rng = thread_rng();
@@ -124,42 +126,43 @@ impl Camera {
         Ray::new(ray_origin, ray_dir)
     }
 
-    fn raycast(&self, world: &World<Float>, ray: &Ray<Float>, max_depth: u16) -> Color<Float> {
+    fn raycast(&self, world: &World, ray: &Ray, max_depth: u16) -> Vec3 {
         if let Some(hit) = world.hit(ray, &(0.001..self.t_range.end)) {
             if let Some((attenuation, scattered)) = hit.material.scatter(ray, &hit) {
                 // Recursively send out new rays as they bounce until the depth limit
                 if max_depth > 0 {
                     attenuation * self.raycast(world, &scattered, max_depth - 1)
                 } else {
-                    Color::new(1.0, 0.0, 0.0) // Bounce limit reached
+                    Vec3::new(1.0, 0.0, 0.0) // Bounce limit reached
+                                             // Bright red so it can be seen more easily
                 }
             } else {
-                Color::new(0.0, 0.0, 0.0) // No ray collision -> void -> return black
-                                          // Don't think this should ever actually happen bc skybox
+                Vec3::new(0.0, 0.0, 0.0) // Light was absorbed, not scattered
             }
         } else {
-            let unit_dir = ray.direction.normalized();
+            // Skybox
+            let unit_dir = ray.direction.normalize();
             let a = (unit_dir.y + 1.0) / 2.0;
-            Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
+            Vec3::ONE * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
         }
     }
 
-    pub fn render(&self, world: &World<Float>, progress_bar: ProgressBar) -> Image {
+    pub fn render(&self, world: &World) -> Image {
         let colors = (0..self.image_height)
+            .cartesian_product(0..self.image_width)
+            .collect_vec()
             .into_par_iter()
-            .progress_with(progress_bar)
-            .flat_map(|y| {
-                (0..self.image_width).into_par_iter().map(move |x| {
-                    let pixel_color = (0..self.samples_per_pixel)
-                        .into_par_iter()
-                        .map(|_| {
-                            let ray = self.get_ray(x, y);
-                            self.raycast(world, &ray, self.max_depth)
-                        })
-                        .sum::<Color<Float>>()
-                        / self.samples_per_pixel as Float; // average color across all samples
-                    (x, y, pixel_color)
-                })
+            .progress()
+            .map(|(y, x)| {
+                let pixel_color = (0..self.samples_per_pixel)
+                    .into_par_iter()
+                    .map(|_| {
+                        let ray = self.get_ray(x, y);
+                        self.raycast(world, &ray, self.max_depth)
+                    })
+                    .sum::<Vec3>()
+                    / self.samples_per_pixel as Float; // average color across all samples
+                (x, y, pixel_color)
             })
             .collect();
 
@@ -206,8 +209,8 @@ impl Camera {
     }
 
     /// Returns a random point in the camera's defocus disk
-    fn defocus_disk_sample(&self) -> Point3<Float> {
-        let p: Vec3<Float> = Vec3::random_in_unit_disc(&mut thread_rng());
+    fn defocus_disk_sample(&self) -> Vec3 {
+        let p: Vec3 = Vec3::random_in_unit_disc(&mut thread_rng());
         self.center + (self.defocus_disk_u * p.x) + (self.defocus_disk_v * p.y)
     }
 }

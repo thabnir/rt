@@ -1,42 +1,38 @@
+use crate::{camera::Float, material::Scatter};
+use glam::Vec3;
 use std::sync::Arc;
 
-use crate::{
-    material::Scatter,
-    vec3::{Point3, Vec3},
-};
-use num_traits::Float;
-
 #[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Ray<T> {
-    pub origin: Point3<T>,
-    pub direction: Vec3<T>,
+pub struct Ray {
+    pub origin: Vec3,
+    pub direction: Vec3,
 }
 
-impl<Scalar: Float> Ray<Scalar> {
-    pub fn new(origin: Point3<Scalar>, direction: Vec3<Scalar>) -> Self {
+impl Ray {
+    pub fn new(origin: Vec3, direction: Vec3) -> Self {
         Self { origin, direction }
     }
 
-    pub fn at(&self, time: Scalar) -> Vec3<Scalar> {
+    pub fn at(&self, time: Float) -> Vec3 {
         self.origin + self.direction * time
     }
 }
 
 #[derive(Clone)]
-pub struct HitRecord<Scalar> {
-    pub point: Point3<Scalar>,
-    pub normal: Vec3<Scalar>,
-    pub material: Arc<dyn Scatter<Scalar> + Send + Sync>,
-    pub t: Scalar,
+pub struct HitRecord {
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub material: Arc<dyn Scatter + Send + Sync>,
+    pub t: Float,
     pub is_front_face: bool,
 }
 
-impl<Scalar: Float> HitRecord<Scalar> {
+impl HitRecord {
     pub fn new(
-        point: Point3<Scalar>,
-        normal: Vec3<Scalar>,
-        t: Scalar,
-        material: Arc<dyn Scatter<Scalar> + Send + Sync>,
+        point: Vec3,
+        normal: Vec3,
+        t: Float,
+        material: Arc<dyn Scatter + Send + Sync>,
         is_front_face: bool,
     ) -> Self {
         HitRecord {
@@ -48,7 +44,7 @@ impl<Scalar: Float> HitRecord<Scalar> {
         }
     }
 
-    pub fn is_front_face(ray: &Ray<Scalar>, outward_normal: Vec3<Scalar>) -> bool {
-        ray.direction.dot(outward_normal) < Scalar::zero()
+    pub fn is_front_face(ray: &Ray, outward_normal: Vec3) -> bool {
+        ray.direction.dot(outward_normal) < 0.0
     }
 }

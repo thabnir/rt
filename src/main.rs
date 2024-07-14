@@ -2,23 +2,23 @@ pub mod camera;
 pub mod hittable;
 pub mod material;
 pub mod ray;
-pub mod vec3;
+pub mod vec3_ext;
 
 use camera::{Camera, Float};
+use glam::Vec3;
 use hittable::{Sphere, World};
 use indicatif::ProgressBar;
 use material::{Dielectric, Lambertian, Metal};
 use rand::{thread_rng, Rng};
 use std::fs::File;
 use std::time::Instant;
-use vec3::{Color, Point3, Vec3};
+use vec3_ext::Vec3Ext;
 
-#[allow(dead_code)]
-fn gen_scene(grid_i: i16, grid_j: i16) -> World<Float> {
+fn gen_scene(grid_i: i16, grid_j: i16) -> World {
     let mut rng = thread_rng();
-    let mut world: World<Float> = Vec::new();
+    let mut world: World = Vec::new();
     let ground_mat = Lambertian {
-        albedo: Color::new(0.5, 0.5, 0.5),
+        albedo: Vec3::new(0.5, 0.5, 0.5),
     };
     let ground = Box::new(Sphere::new(
         Vec3::new(0.0, -1000.0, -1.0),
@@ -29,32 +29,32 @@ fn gen_scene(grid_i: i16, grid_j: i16) -> World<Float> {
     let mat1 = Dielectric {
         refractive_index: 1.5,
     };
-    let p1 = Point3::new(0.0, 1.0, 0.0);
+    let p1 = Vec3::new(0.0, 1.0, 0.0);
     world.push(Box::new(Sphere::new(p1, 1.0, mat1)));
     let mat2 = Lambertian {
-        albedo: Color::new(0.4, 0.2, 0.1),
+        albedo: Vec3::new(0.4, 0.2, 0.1),
     };
-    let p2 = Point3::new(-4.0, 1.0, 0.0);
+    let p2 = Vec3::new(-4.0, 1.0, 0.0);
     world.push(Box::new(Sphere::new(p2, 1.0, mat2)));
     let mat3 = Metal {
-        albedo: Color::new(0.7, 0.6, 0.5),
+        albedo: Vec3::new(0.7, 0.6, 0.5),
         fuzz: 0.0,
     };
-    let p3 = Point3::new(4.0, 1.0, 0.0);
+    let p3 = Vec3::new(4.0, 1.0, 0.0);
     world.push(Box::new(Sphere::new(p3, 1.0, mat3)));
 
     for i in -grid_i..grid_i {
         for j in -grid_j..grid_j {
             let radius = 0.2;
-            let albedo: Color<Float> = Color::rand_color(&mut rng);
-            let offset: Point3<Float> = Vec3 {
+            let albedo: Vec3 = Vec3::random(&mut rng, 0.0, 1.0);
+            let offset: Vec3 = Vec3 {
                 x: rng.gen_range(0.0..0.9),
                 y: 0.0,
                 z: rng.gen_range(0.0..0.9),
             };
             let i_offset = 1.0;
             let j_offset = 1.0;
-            let center = Point3::new(i as Float * i_offset, radius, j as Float * j_offset) + offset;
+            let center = Vec3::new(i as Float * i_offset, radius, j as Float * j_offset) + offset;
             if center.distance(p1) < 1.2 || center.distance(p2) < 1.2 || center.distance(p3) < 1.2 {
                 continue;
             }
@@ -81,12 +81,12 @@ fn gen_scene(grid_i: i16, grid_j: i16) -> World<Float> {
 }
 
 fn main() -> std::io::Result<()> {
-    let world: World<Float> = gen_scene(20, 20);
+    let world: World = gen_scene(20, 20);
 
-    let image_width = 1920;
-    let image_height = 1080;
-    let samples_per_pixel = 1000;
-    let max_depth = 10;
+    let image_width = 800;
+    let image_height = 600;
+    let samples_per_pixel = 32;
+    let max_depth = 8;
     let defocus_angle = 0.6;
     let focus_distance = 10.0;
 
@@ -104,10 +104,9 @@ fn main() -> std::io::Result<()> {
         0.0..Float::MAX,
     );
 
-    let render_progress = ProgressBar::new(image_height as u64);
     println!("Rendering...");
     let now = Instant::now();
-    let image = camera.render(&world, render_progress);
+    let image = camera.render(&world);
     let elapsed = now.elapsed();
     let pixels_per_sec =
         (image_width as Float * image_height as Float) / elapsed.as_millis() as Float;

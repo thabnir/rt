@@ -1,24 +1,28 @@
-use crate::{material::Scatter, ray::HitRecord, vec3::Vec3};
+use crate::{
+    camera::Float,
+    material::Scatter,
+    ray::{HitRecord, Ray},
+    vec3_ext::Vec3Ext,
+};
+use glam::Vec3;
+use rand::thread_rng;
 use std::{ops::Range, sync::Arc};
 
-use num_traits::Float;
-use rand::{distributions::uniform::SampleUniform, thread_rng};
-
-use crate::{ray::Ray, vec3::Point3};
-
-pub trait Hit<Scalar: Float>: Send + Sync {
-    fn hit(&self, ray: &Ray<Scalar>, range: &Range<Scalar>) -> Option<HitRecord<Scalar>>;
+pub trait Hit: Send + Sync {
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord>;
 }
 
-pub type World<Scalar> = Vec<Box<dyn Hit<Scalar>>>;
+pub type World = Vec<Box<dyn Hit>>;
 
-impl<Scalar: Float + Send + Sync> Hit<Scalar> for World<Scalar> {
+impl Hit for World {
     /// Returns nearest hit to camera for the given ray within the given view range
-    fn hit(&self, ray: &Ray<Scalar>, range: &Range<Scalar>) -> Option<HitRecord<Scalar>> {
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
         // Save nearest collision to camera to avoid checking for collisions against objects obscured by those we've already hit
         let mut nearest_hit_dist = range.end;
         let mut nearest_hit = None;
 
+        // TODO: optimize this, don't need to test against every object for every ray
+        // a BVH seems like the best option, though it's complicated
         for obj in self.iter() {
             if let Some(hit) = obj.hit(ray, &(range.start..nearest_hit_dist)) {
                 nearest_hit_dist = hit.t;
@@ -31,46 +35,40 @@ impl<Scalar: Float + Send + Sync> Hit<Scalar> for World<Scalar> {
 }
 
 #[derive(Clone)]
-pub struct Sphere<Scalar> {
-    pub center: Point3<Scalar>,
-    pub radius: Scalar,
-    pub material: Arc<dyn Scatter<Scalar> + Send + Sync>,
+pub struct Sphere {
+    pub center: Vec3,
+    pub radius: Float,
+    pub material: Arc<dyn Scatter + Send + Sync>,
 }
 
-impl<Scalar: Float + Send + Sync> Sphere<Scalar> {
-    pub fn new(
-        center: Point3<Scalar>,
-        radius: Scalar,
-        material: impl Scatter<Scalar> + 'static,
-    ) -> Self {
-        let radius = radius.max(Scalar::zero());
+impl Sphere {
+    pub fn new(center: Vec3, radius: Float, material: impl Scatter + 'static) -> Self {
+        let radius = radius.max(0.0);
         Sphere {
             center,
             radius,
             material: Arc::new(material),
         }
     }
-}
 
-impl<T: Float + SampleUniform> Sphere<T> {
-    pub fn random_on_hemisphere(normal: &Vec3<T>) -> Vec3<T> {
-        let unit_vector: Vec3<T> = Vec3::random_unit(&mut thread_rng());
-        if unit_vector.dot(*normal) > T::zero() {
+    pub fn random_on_hemisphere(normal: &Vec3) -> Vec3 {
+        let unit_vector: Vec3 = Vec3::random_unit(&mut thread_rng());
+        if unit_vector.dot(*normal) > 0.0 {
             return unit_vector; // facing same direction as normal (out from sphere)
         }
         -unit_vector // facing toward center of sphere (must be inverted to reflect)
     }
 }
 
-impl<Scalar: Float + Send + Sync> Hit<Scalar> for Sphere<Scalar> {
-    fn hit(&self, ray: &Ray<Scalar>, range: &Range<Scalar>) -> Option<HitRecord<Scalar>> {
+impl Hit for Sphere {
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
         let oc = self.center - ray.origin;
         let a = ray.direction.length_squared();
         let h = ray.direction.dot(oc);
         let c = oc.length_squared() - self.radius * self.radius;
 
         let discriminant = h * h - a * c;
-        if discriminant < Scalar::zero() {
+        if discriminant < 0.0 {
             return None; // no point hit on the sphere
         }
 
