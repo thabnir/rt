@@ -1,14 +1,15 @@
 use crate::{
-    hittable::{Hit, World},
+    hittable::{Hit, Sphere, World},
+    material::{Dielectric, Lambertian, Metal},
     ray::Ray,
     vec3_ext::Vec3Ext,
 };
 use glam::Vec3;
-use indicatif::{ParallelProgressIterator, ProgressBar};
+use indicatif::{ParallelProgressIterator, ProgressIterator};
 use itertools::Itertools;
 use rand::{
     distributions::{Distribution, Uniform},
-    thread_rng,
+    thread_rng, Rng,
 };
 use rayon::prelude::*;
 use std::{
@@ -23,12 +24,13 @@ pub type Float = f32;
 pub const T_MIN: Float = 0.0;
 pub const T_MAX: Float = Float::MAX;
 
+#[derive(Default)]
 pub struct Camera {
     center: Vec3,
-    image_width: u16,
-    image_height: u16,
-    samples_per_pixel: u16,
-    max_depth: u16,
+    pub image_width: usize,
+    pub image_height: usize,
+    samples_per_pixel: usize,
+    max_depth: usize,
     defocus_angle: Float,
     defocus_disk_u: Vec3,
     defocus_disk_v: Vec3,
@@ -38,11 +40,13 @@ pub struct Camera {
     t_range: Range<Float>,
 }
 
-pub type Pixel = (u16, u16, Vec3);
+pub type Pixel = (usize, usize, Vec3);
+
+#[derive(Default)]
 pub struct Image {
-    colors: Vec<Pixel>,
-    width: u16,
-    height: u16,
+    pub colors: Vec<Pixel>,
+    pub width: usize,
+    pub height: usize,
 }
 
 /// Take a positive color value in linear space from 0.0 to 1.0 and convert it to gamma 2
@@ -58,10 +62,10 @@ impl Camera {
         up: Vec3,
         focus_distance: Float, // Distance from camera's center to plane of perfect focus
         defocus_angle: Float,  // Variation of angle of rays through each pixel
-        image_width: u16,
-        image_height: u16,
-        samples_per_pixel: u16,
-        max_depth: u16,
+        image_width: usize,
+        image_height: usize,
+        samples_per_pixel: usize,
+        max_depth: usize,
         vertical_fov: Float,
         t_range: Range<Float>,
     ) -> Self {
@@ -108,7 +112,7 @@ impl Camera {
 
     /// Return a camera ray originating from the defocus disk and directed at a random
     /// point around the pixel location `x, y`.
-    fn get_ray(&self, x: u16, y: u16) -> Ray {
+    fn get_ray(&self, x: usize, y: usize) -> Ray {
         // Offsets uniformly distributed within 1/2 pixel ensure 100% coverage with 0 overlap
         let range = Uniform::from(-0.5..0.5);
         let mut rng = thread_rng();
@@ -126,15 +130,14 @@ impl Camera {
         Ray::new(ray_origin, ray_dir)
     }
 
-    fn raycast(&self, world: &World, ray: &Ray, max_depth: u16) -> Vec3 {
+    fn raycast(&self, world: &World, ray: &Ray, max_depth: usize) -> Vec3 {
         if let Some(hit) = world.hit(ray, &(0.001..self.t_range.end)) {
             if let Some((attenuation, scattered)) = hit.material.scatter(ray, &hit) {
                 // Recursively send out new rays as they bounce until the depth limit
                 if max_depth > 0 {
                     attenuation * self.raycast(world, &scattered, max_depth - 1)
                 } else {
-                    Vec3::new(1.0, 0.0, 0.0) // Bounce limit reached
-                                             // Bright red so it can be seen more easily
+                    Vec3::new(0.0, 0.0, 0.0) // Bounce limit reached
                 }
             } else {
                 Vec3::new(0.0, 0.0, 0.0) // Light was absorbed, not scattered
@@ -147,12 +150,18 @@ impl Camera {
         }
     }
 
-    pub fn render(&self, world: &World) -> Image {
-        let colors = (0..self.image_height)
-            .cartesian_product(0..self.image_width)
+    pub fn render_tile(
+        &self,
+        world: &World,
+        tile_x: usize,
+        tile_y: usize,
+        tile_width: usize,
+        tile_height: usize,
+    ) -> Vec<(usize, usize, Vec3)> {
+        (tile_y..tile_y + tile_height)
+            .cartesian_product(tile_x..tile_x + tile_width)
             .collect_vec()
             .into_par_iter()
-            .progress()
             .map(|(y, x)| {
                 let pixel_color = (0..self.samples_per_pixel)
                     .into_par_iter()
@@ -164,7 +173,17 @@ impl Camera {
                     / self.samples_per_pixel as Float; // average color across all samples
                 (x, y, pixel_color)
             })
-            .collect();
+            .collect()
+    }
+
+    pub fn render(&self, world: &World) -> Image {
+        let colors = (0..self.image_height)
+            .cartesian_product(0..self.image_width)
+            .collect_vec()
+            .into_par_iter()
+            .progress()
+            .map(|(y, x)| (x, y, self.pixel_color(world, x, y, self.samples_per_pixel)))
+            .collect::<_>();
 
         Image {
             colors,
@@ -173,11 +192,18 @@ impl Camera {
         }
     }
 
-    pub fn write_image(
-        image: Image,
-        out_file: File,
-        progress_bar: Option<ProgressBar>,
-    ) -> std::io::Result<()> {
+    pub fn pixel_color(&self, world: &World, x: usize, y: usize, num_samples: usize) -> Vec3 {
+        (0..num_samples)
+            .into_par_iter()
+            .map(|_| {
+                let ray = self.get_ray(x, y);
+                self.raycast(world, &ray, self.max_depth)
+            })
+            .sum::<Vec3>()
+            / num_samples as Float // average color across all samples
+    }
+
+    pub fn write_image(image: Image, out_file: File) -> std::io::Result<()> {
         let mut buf_writer = BufWriter::new(out_file);
 
         // Write header metadata necessary for PPM file:
@@ -188,13 +214,8 @@ impl Camera {
         buf_writer.write_all(header.as_bytes())?;
 
         // Write the colors to the buffer
-        // Obvious room for optimization here but whatever, it's fast enough as is
-        // (e.g. make a big string in advance before writing)
-        for (x, _y, color) in image.colors {
-            buf_writer.write_all(color.as_rgb().as_bytes())?;
-            if let Some(pb) = &progress_bar {
-                pb.inc(1);
-            }
+        for (x, _y, color) in image.colors.into_iter().progress() {
+            buf_writer.write_all(color.as_rgb_gamma_string().as_bytes())?;
             if x == image.width - 1 {
                 buf_writer.write_all("\n".as_bytes())?;
             } else {
@@ -202,9 +223,6 @@ impl Camera {
             }
         }
         buf_writer.flush()?;
-        if let Some(pb) = &progress_bar {
-            pb.finish();
-        }
         Ok(())
     }
 
@@ -213,4 +231,70 @@ impl Camera {
         let p: Vec3 = Vec3::random_in_unit_disc(&mut thread_rng());
         self.center + (self.defocus_disk_u * p.x) + (self.defocus_disk_v * p.y)
     }
+}
+
+pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
+    let mut rng = thread_rng();
+    let mut world: World = Vec::new();
+    let ground_mat = Lambertian {
+        albedo: Vec3::new(0.5, 0.5, 0.5),
+    };
+    let ground = Box::new(Sphere::new(
+        Vec3::new(0.0, -1000.0, -1.0),
+        1000.0,
+        ground_mat,
+    ));
+    world.push(ground);
+    let mat1 = Dielectric {
+        refractive_index: 1.5,
+    };
+    let p1 = Vec3::new(0.0, 1.0, 0.0);
+    world.push(Box::new(Sphere::new(p1, 1.0, mat1)));
+    let mat2 = Lambertian {
+        albedo: Vec3::new(0.4, 0.2, 0.1),
+    };
+    let p2 = Vec3::new(-4.0, 1.0, 0.0);
+    world.push(Box::new(Sphere::new(p2, 1.0, mat2)));
+    let mat3 = Metal {
+        albedo: Vec3::new(0.7, 0.6, 0.5),
+        fuzz: 0.0,
+    };
+    let p3 = Vec3::new(4.0, 1.0, 0.0);
+    world.push(Box::new(Sphere::new(p3, 1.0, mat3)));
+
+    for i in -grid_i..grid_i {
+        for j in -grid_j..grid_j {
+            let radius = 0.2;
+            let albedo: Vec3 = Vec3::random(&mut rng, 0.0, 1.0);
+            let offset: Vec3 = Vec3 {
+                x: rng.gen_range(0.0..0.9),
+                y: 0.0,
+                z: rng.gen_range(0.0..0.9),
+            };
+            let i_offset = 1.0;
+            let j_offset = 1.0;
+            let center = Vec3::new(i as Float * i_offset, radius, j as Float * j_offset) + offset;
+            if center.distance(p1) < 1.2 || center.distance(p2) < 1.2 || center.distance(p3) < 1.2 {
+                continue;
+            }
+            let choose = rng.gen_range(0.0..1.0);
+            if choose > (0.95) {
+                let mat = Dielectric {
+                    refractive_index: 1.5,
+                };
+                let sphere = Box::new(Sphere::new(center, radius, mat));
+                world.push(sphere);
+            } else if choose > 0.8 {
+                let fuzz = rng.gen_range(0.0..0.5);
+                let mat = Metal { albedo, fuzz };
+                let sphere = Box::new(Sphere::new(center, radius, mat));
+                world.push(sphere);
+            } else {
+                let mat = Lambertian { albedo };
+                let sphere = Box::new(Sphere::new(center, radius, mat));
+                world.push(sphere);
+            };
+        }
+    }
+    world
 }

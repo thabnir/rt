@@ -6,7 +6,9 @@ use rand::thread_rng;
 use rand::Rng;
 
 pub trait Vec3Ext {
-    fn as_rgb(&self) -> String;
+    fn as_rgb_linear(&self) -> (u8, u8, u8);
+    fn as_rgb_gamma(&self) -> (u8, u8, u8);
+    fn as_rgb_gamma_string(&self) -> String;
     fn near_zero(&self) -> bool;
     fn random<R: Rng + ?Sized>(rng: &mut R, min: Float, max: Float) -> Self;
     fn random_unit<R: Rng + ?Sized>(rng: &mut R) -> Self;
@@ -15,7 +17,7 @@ pub trait Vec3Ext {
 }
 
 impl Vec3Ext for Vec3 {
-    fn as_rgb(&self) -> String {
+    fn as_rgb_linear(&self) -> (u8, u8, u8) {
         let color_range = 0.0..=1.0;
         if !color_range.contains(&self.x) {
             panic!(
@@ -35,13 +37,52 @@ impl Vec3Ext for Vec3 {
                 self.z
             );
         }
+        let cmax = 255.0;
+        let r = (self.x * cmax).round() as u8;
+        let g = (self.y * cmax).round() as u8;
+        let b = (self.z * cmax).round() as u8;
+        (r, g, b)
+    }
 
-        let cmax = 255.999;
+    fn as_rgb_gamma(&self) -> (u8, u8, u8) {
+        let color_range = 0.0..=1.0;
+        if !color_range.contains(&self.x) {
+            panic!(
+                "Bad color value for red/x: {}. Value should be between 0.0 and 1.0",
+                self.x
+            );
+        }
+        if !color_range.contains(&self.y) {
+            panic!(
+                "Bad color value for green/y: {}. Value should be between 0.0 and 1.0",
+                self.y
+            );
+        }
+        if !color_range.contains(&self.z) {
+            panic!(
+                "Bad color value for blue/z: {}. Value should be between 0.0 and 1.0",
+                self.z
+            );
+        }
+        let cmax = 255.0;
         let r = (linear_to_gamma(self.x) * cmax).round() as u8;
         let g = (linear_to_gamma(self.y) * cmax).round() as u8;
         let b = (linear_to_gamma(self.z) * cmax).round() as u8;
+        (r, g, b)
+    }
+
+    fn as_rgb_gamma_string(&self) -> String {
+        let (r, g, b) = self.as_rgb_gamma();
         let string = format!("{} {} {}", r, g, b);
         string
+    }
+
+    fn near_zero(&self) -> bool {
+        // Based on https://docs.rs/almost/latest/almost/
+        // Which defaults to Float::EPSILON.sqrt() as a comparison
+        // to determine if a number is "almost" zero
+        let e = Float::EPSILON.sqrt();
+        self.x.abs() < e && self.y.abs() < e && self.z.abs() < e
     }
 
     fn random<R: Rng + ?Sized>(rng: &mut R, min: Float, max: Float) -> Self {
@@ -73,13 +114,5 @@ impl Vec3Ext for Vec3 {
             return unit_vector; // facing same direction as normal (out from sphere)
         }
         -unit_vector // facing toward center of sphere (must be inverted to reflect)
-    }
-
-    fn near_zero(&self) -> bool {
-        // Based on https://docs.rs/almost/latest/almost/
-        // Which defaults to Float::EPSILON.sqrt() as a comparison
-        // to determine if a number is "almost" zero
-        let e = Float::EPSILON.sqrt();
-        self.x.abs() < e && self.y.abs() < e && self.z.abs() < e
     }
 }
