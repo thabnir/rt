@@ -7,8 +7,7 @@ Parallelized using [Rayon](https://github.com/rayon-rs/rayon).
 
 Supports a live render preview so you can monitor your render's progress. Uses [winit](https://github.com/rust-windowing/winit) and [pixels](https://github.com/parasyte/pixels) for the hard work of drawing the render to the screen.
 
-![Live render preview](https://github.com/user-attachments/assets/73a87dbe-7503-44db-82e9-313ffc7b4dbb)
-
+https://github.com/user-attachments/assets/73a87dbe-7503-44db-82e9-313ffc7b4dbb
 
 ## Example Render
 
