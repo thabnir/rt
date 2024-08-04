@@ -1,9 +1,10 @@
 use crate::camera::{linear_to_gamma, Float};
-use glam::Vec3;
 use rand::distributions::Distribution;
 use rand::distributions::Uniform;
 use rand::thread_rng;
 use rand::Rng;
+
+pub type Vec3 = glam::Vec3;
 
 pub trait Vec3Ext {
     fn as_rgb_linear(&self) -> (u8, u8, u8);

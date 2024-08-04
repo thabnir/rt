@@ -1,16 +1,19 @@
-use crate::{camera::Float, material::Scatter};
-use glam::Vec3;
-use std::sync::Arc;
+use crate::{camera::Float, material::Material, vec3::Vec3};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Ray {
     pub origin: Vec3,
     pub direction: Vec3,
+    pub time: Float,
 }
 
 impl Ray {
-    pub fn new(origin: Vec3, direction: Vec3) -> Self {
-        Self { origin, direction }
+    pub fn new(origin: Vec3, direction: Vec3, time: Float) -> Self {
+        Self {
+            origin,
+            direction,
+            time,
+        }
     }
 
     pub fn at(&self, time: Float) -> Vec3 {
@@ -22,7 +25,7 @@ impl Ray {
 pub struct HitRecord {
     pub point: Vec3,
     pub normal: Vec3,
-    pub material: Arc<dyn Scatter + Send + Sync>,
+    pub material: Material,
     pub t: Float,
     pub is_front_face: bool,
 }
@@ -32,7 +35,7 @@ impl HitRecord {
         point: Vec3,
         normal: Vec3,
         t: Float,
-        material: Arc<dyn Scatter + Send + Sync>,
+        material: Material,
         is_front_face: bool,
     ) -> Self {
         HitRecord {
