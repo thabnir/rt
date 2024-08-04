@@ -1,10 +1,26 @@
 use crate::{
     camera::Float,
     ray::{HitRecord, Ray},
-    vec3_ext::Vec3Ext,
+    vec3::{Vec3, Vec3Ext},
 };
-use glam::Vec3;
 use rand::{thread_rng, Rng};
+
+#[derive(Clone, Copy, Debug)]
+pub enum Material {
+    Lambertian(Lambertian),
+    Metal(Metal),
+    Dielectric(Dielectric),
+}
+
+impl Scatter for Material {
+    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
+        match self {
+            Material::Lambertian(lambertian) => lambertian.scatter(ray_in, record),
+            Material::Metal(metal) => metal.scatter(ray_in, record),
+            Material::Dielectric(dielectric) => dielectric.scatter(ray_in, record),
+        }
+    }
+}
 
 pub trait Scatter: Send + Sync {
     fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)>;
@@ -26,12 +42,12 @@ fn refract(incoming_direction: Vec3, surface_normal: Vec3, refractive_ratio: Flo
     r_out_parallel + r_out_perp
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Lambertian {
     pub albedo: Vec3,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Metal {
     pub albedo: Vec3,
     pub fuzz: Float,
@@ -41,23 +57,23 @@ impl Scatter for Metal {
     fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
         let reflected = reflect(ray_in.direction, record.normal)
             + Vec3::random_unit(&mut thread_rng()) * self.fuzz;
-        let scattered = Ray::new(record.point, reflected);
+        let scattered = Ray::new(record.point, reflected, ray_in.time);
         Some((self.albedo, scattered))
     }
 }
 
 impl Scatter for Lambertian {
-    fn scatter(&self, _ray_in: &Ray, hit: &HitRecord) -> Option<(Vec3, Ray)> {
+    fn scatter(&self, ray_in: &Ray, hit: &HitRecord) -> Option<(Vec3, Ray)> {
         let mut scatter_dir = hit.normal + Vec3::random_unit(&mut thread_rng());
         if scatter_dir.near_zero() {
             scatter_dir = hit.normal;
         }
-        let scattered = Ray::new(hit.point, scatter_dir);
+        let scattered = Ray::new(hit.point, scatter_dir, ray_in.time);
         Some((self.albedo, scattered))
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Dielectric {
     /// Refractive index in vacuum or air, or the ratio of the material's
     /// refractive index over the refractive index of the enclosing media
@@ -86,7 +102,7 @@ impl Scatter for Dielectric {
         } else {
             refract(incoming_direction, record.normal, ri)
         };
-        Some((Vec3::ONE, Ray::new(record.point, direction)))
+        Some((Vec3::ONE, Ray::new(record.point, direction, ray_in.time)))
     }
 }
 
