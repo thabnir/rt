@@ -12,16 +12,20 @@ use crate::{
 };
 use camera::Image;
 use indicatif::ParallelProgressIterator;
-use pixels::{Pixels, SurfaceTexture};
+use pixels::{Error, Pixels, SurfaceTexture};
 use rand::{prelude::SliceRandom, thread_rng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
     fs::File,
     ops::Deref,
-    sync::{atomic::AtomicBool, Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
     time::{Duration, Instant},
 };
 use winit::{
+    dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
@@ -31,31 +35,40 @@ const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 1000;
 
 // TODO: figure out how to apply gamma correction to the preview in a performant way
-fn window_preview(camera: Camera, world: World) {
+fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
     let update_interval = Duration::from_secs_f32(1.0 / 60.0); // 60 FPS
 
     // TODO: use SIMD? For the render buffer it's kind of a no-brainer. Unstable std feature, though
     // Worth checking if there are significant performance benefits
+    // Could also use something like Simba https://crates.io/crates/simba
+    // https://www.rustsim.org/blog/2020/03/23/simd-aosoa-in-nalgebra/
 
     // Initialized to 0xff so that the alpha channel is 255, since alpha isn't updated in the render loop
     let render_buffer = Arc::new(RwLock::new([0xffu8; (WIDTH * HEIGHT * 4) as usize]));
 
     let event_loop = EventLoop::new();
+    let size = LogicalSize::new(WIDTH, HEIGHT);
 
     let window = WindowBuilder::new()
+        .with_visible(false)
         .with_title("Raytracer Preview")
-        .with_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT))
+        .with_inner_size(size)
+        .with_min_inner_size(size)
         .build(&event_loop)
         .unwrap();
 
     // Texture dimensions have to be doubled to match window size for some reason (maybe DPI scaling?)
-    let surface_texture = SurfaceTexture::new(WIDTH * 2, HEIGHT * 2, &window);
-    let mut pixels = Pixels::new(WIDTH, HEIGHT, surface_texture).unwrap();
+    let mut pixels = {
+        let window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        Pixels::new(WIDTH, HEIGHT, surface_texture)?
+    };
 
-    // let (send_close, receive_close) = mpsc::channel();
     // TODO: maybe use a Condvar for this? https://doc.rust-lang.org/std/sync/struct.Condvar.html
-    // Only if bored tho cause this already works just fine
+    // (Only if bored tho cause this already works just fine)
     let closing = Arc::new(AtomicBool::new(false));
+
+    window.set_visible(true);
 
     // Raytracing thread
     std::thread::Builder::new()
@@ -81,7 +94,7 @@ fn window_preview(camera: Camera, world: World) {
                 ..
             } => {
                 // Write the image as it is on close request
-                closing.store(true, std::sync::atomic::Ordering::Relaxed);
+                closing.store(true, Ordering::Relaxed);
                 let write_thread = std::thread::Builder::new()
                     .name("write_thread".into())
                     .stack_size((WIDTH * HEIGHT * 4 * 3) as usize) // Avoid stack overflow
@@ -120,6 +133,15 @@ fn window_preview(camera: Camera, world: World) {
                     .unwrap();
                 write_thread.join().unwrap();
                 *control_flow = ControlFlow::Exit
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(new_size),
+                ..
+            } => {
+                if let Err(err) = pixels.resize_surface(new_size.width, new_size.height) {
+                    println!("pixels.resize_surface error {}", err);
+                    *control_flow = ControlFlow::Exit;
+                }
             }
             Event::MainEventsCleared => {
                 if last_update.elapsed() >= update_interval {
@@ -205,7 +227,7 @@ fn render_thread(
             total_samples,
         );
         render_pixels.par_iter().progress().for_each(|idx| {
-            if closing.load(std::sync::atomic::Ordering::Relaxed) {
+            if closing.load(Ordering::Relaxed) {
                 return;
             }
             let x = idx % WIDTH;
@@ -238,7 +260,7 @@ fn render_thread(
                 buffer[i] = r;
                 buffer[i + 1] = g;
                 buffer[i + 2] = b;
-                // buffer[i + 3] is the alpha channel. Always 0xff from inception.
+                // buffer[i + 3] is the alpha channel. Should always contain 0xff.
             } else {
                 panic!("Failed to acquire buffer lock in ray tracing loop");
             }
@@ -281,7 +303,9 @@ fn main() -> std::io::Result<()> {
         0.0..Float::MAX,
     );
 
-    window_preview(camera, world);
+    if let Err(err) = window_preview(camera, world) {
+        println!("Err: {}", err);
+    }
     println!("Done.");
     Ok(())
 }
