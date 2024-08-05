@@ -1,10 +1,8 @@
 pub mod bvh;
-pub mod bvh;
 pub mod camera;
 pub mod hittable;
 pub mod material;
 pub mod ray;
-pub mod vec3;
 pub mod vec3;
 
 use crate::{
@@ -34,7 +32,6 @@ use winit::{
 };
 
 const WIDTH: u32 = 1600;
-const WIDTH: u32 = 1600;
 const HEIGHT: u32 = 1000;
 
 // TODO: figure out how to apply gamma correction to the preview in a performant way
@@ -47,7 +44,6 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
     // https://www.rustsim.org/blog/2020/03/23/simd-aosoa-in-nalgebra/
 
     // Initialized to 0xff so that the alpha channel is 255, since alpha isn't updated in the render loop
-    let render_buffer = Arc::new(RwLock::new([0xffu8; (WIDTH * HEIGHT * 4) as usize]));
     let render_buffer = Arc::new(RwLock::new([0xffu8; (WIDTH * HEIGHT * 4) as usize]));
 
     let event_loop = EventLoop::new();
@@ -77,20 +73,16 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
     // Raytracing thread
     std::thread::Builder::new()
         .name("rt_thread".into())
-        .name("rt_thread".into())
         .stack_size((WIDTH * HEIGHT * 4 * 3) as usize) // Avoid stack overflow at high res
         .spawn({
             let render_buffer = render_buffer.clone();
             let closing = closing.clone();
-            let closing = closing.clone();
             move || {
-                render_thread(camera, world, render_buffer, &closing);
                 render_thread(camera, world, render_buffer, &closing);
             }
         })
         .unwrap();
 
-    // Preview window event loop
     // Preview window event loop
     let mut last_update = Instant::now();
     event_loop.run(move |event, _, control_flow| {
@@ -105,7 +97,6 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
                 closing.store(true, Ordering::Relaxed);
                 let write_thread = std::thread::Builder::new()
                     .name("write_thread".into())
-                    .name("write_thread".into())
                     .stack_size((WIDTH * HEIGHT * 4 * 3) as usize) // Avoid stack overflow
                     .spawn({
                         let render_buffer = render_buffer.clone();
@@ -113,7 +104,6 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
                             let out_file = File::create("preview_out.ppm").unwrap();
                             let mut copy_buf = [0u8; (WIDTH * HEIGHT * 4) as usize];
                             {
-                                let buffer = render_buffer.read().unwrap();
                                 let buffer = render_buffer.read().unwrap();
                                 copy_buf.clone_from_slice(buffer.deref());
                             }
@@ -173,7 +163,6 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
                 // Update the pixel buffer based on the new rays/pixel colors
                 {
                     let buffer = render_buffer.read().unwrap();
-                    let buffer = render_buffer.read().unwrap();
                     frame.clone_from_slice(buffer.deref());
                 }
 
@@ -189,8 +178,6 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
 fn render_thread(
     camera: Camera,
     world: World,
-    render_buffer: Arc<RwLock<[u8; (WIDTH * HEIGHT * 4) as usize]>>,
-    closing: &AtomicBool,
     render_buffer: Arc<RwLock<[u8; (WIDTH * HEIGHT * 4) as usize]>>,
     closing: &AtomicBool,
 ) {
@@ -216,14 +203,6 @@ fn render_thread(
         256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
         256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
         256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
-        256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256, 256,
     ];
     let num_samples_total: Vec<usize> = num_samples_at_pass
         .iter()
@@ -235,20 +214,16 @@ fn render_thread(
 
     // Accumulates samples in multiple passes
     let first_start = Instant::now();
-    let first_start = Instant::now();
     for (i, (num_samples, total_samples)) in num_samples_at_pass
         .iter()
         .zip(num_samples_total)
         .enumerate()
     {
         let sweep_start = Instant::now();
-        let sweep_start = Instant::now();
         println!(
-            "On sweep {} adding {} sample(s) for a total of {} sample(s) per pixel",
             "On sweep {} adding {} sample(s) for a total of {} sample(s) per pixel",
             i + 1,
             num_samples,
-            total_samples,
             total_samples,
         );
         render_pixels.par_iter().progress().for_each(|idx| {
@@ -259,11 +234,8 @@ fn render_thread(
             let y = idx / WIDTH;
             let i = (idx * 4) as usize;
             let new_color = camera.render_pixel(&world, x as usize, y as usize, *num_samples);
-            let new_color = camera.render_pixel(&world, x as usize, y as usize, *num_samples);
 
             let old_color = {
-                // This could MAYBE be done without a lock for better performance
-                let buffer = render_buffer.read().unwrap();
                 // This could MAYBE be done without a lock for better performance
                 let buffer = render_buffer.read().unwrap();
                 Vec3::new(
@@ -285,7 +257,6 @@ fn render_thread(
             let (r, g, b) = combined_color.as_rgb_linear();
 
             if let Ok(mut buffer) = render_buffer.write() {
-            if let Ok(mut buffer) = render_buffer.write() {
                 buffer[i] = r;
                 buffer[i + 1] = g;
                 buffer[i + 2] = b;
@@ -304,25 +275,11 @@ fn render_thread(
             total_rays_this_sweep as f64 / 1_000_000.0 / sweep_duration,
             total_rays as f64 / 1_000_000.0 / total_duration,
         );
-                panic!("Failed to acquire buffer lock in ray tracing loop");
-            }
-        });
-        let sweep_duration = sweep_start.elapsed().as_secs_f64();
-        let total_duration = first_start.elapsed().as_secs_f64();
-        let total_rays_this_sweep = num_samples * WIDTH as usize * HEIGHT as usize;
-        let total_rays = total_samples * WIDTH as usize * HEIGHT as usize;
-        println!(
-            "Rendered sweep {} at {:.1} million rays/second, overall speed: {:.1} Mray/s",
-            i + 1,
-            total_rays_this_sweep as f64 / 1_000_000.0 / sweep_duration,
-            total_rays as f64 / 1_000_000.0 / total_duration,
-        );
     }
 }
 
 fn main() -> std::io::Result<()> {
     env_logger::init();
-    let world: World = gen_scene(6, 6);
     let world: World = gen_scene(6, 6);
 
     let image_width = WIDTH as usize;
