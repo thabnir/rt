@@ -49,11 +49,6 @@ pub struct Image {
     pub height: usize,
 }
 
-/// Take a positive color value in linear space from 0.0 to 1.0 and convert it to gamma 2
-pub fn linear_to_gamma(linear_color_value: Float) -> Float {
-    linear_color_value.sqrt()
-}
-
 // Used to generate pixel sample offset values for rays for faster convergence / less noise
 // Maybe use a uniform pattern instead? Need to do more research into this...
 // https://en.wikipedia.org/wiki/Halton_sequence
@@ -81,6 +76,8 @@ fn halton_sequence(base: u64, sequence_length: u64) -> impl std::iter::Iterator<
     })
 }
 
+// TODO: make a uniform sequence for a set sample value.
+// And think about how it should be done
 // fn uniform_sequence(sequence_length_sqrt: u64) -> impl std::iter::Iterator<Item = Float> {
 //     let mut index = 0;
 //     let n = sequence_length_sqrt.pow(2);
@@ -186,6 +183,7 @@ impl Camera {
         let origin = if self.defocus_angle <= 0.0 {
             self.center // no blur
         } else {
+            // TODO: implement better sampling technique for this (QMC stuff)
             self.defocus_disk_sample() // random blur
         };
         Ray {

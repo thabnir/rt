@@ -3,9 +3,8 @@ use crate::{
     camera::Float,
     material::Material,
     ray::{HitRecord, Ray},
-    vec3::{Vec3, Vec3Ext},
+    vec3::Vec3,
 };
-use rand::thread_rng;
 use std::ops::{Deref, DerefMut, Range};
 
 pub trait Hit: Send + Sync {
@@ -13,11 +12,6 @@ pub trait Hit: Send + Sync {
     /// Returns the bounding box over the entire range of motion
     fn bounding_box(&self) -> &AxisAlignedBoundingBox;
 }
-
-// TODO: figure out how to do this so it's basically a fancy wrapper for Vec except when i need to
-// do stuff to it
-// maybe something to with the adapter pattern? TBD
-// add code here
 
 pub struct World {
     hittable_list: Vec<Hittable>,
@@ -140,15 +134,6 @@ impl Sphere {
             radius: radius.max(0.0),
             material,
             bounding_box,
-        }
-    }
-
-    pub fn random_on_hemisphere(normal: &Vec3) -> Vec3 {
-        let unit_vector: Vec3 = Vec3::random_unit(&mut thread_rng());
-        if unit_vector.dot(*normal) > 0.0 {
-            unit_vector // facing same direction as normal (out from sphere)
-        } else {
-            -unit_vector // facing toward center of sphere (must be inverted to reflect)
         }
     }
 

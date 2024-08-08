@@ -57,11 +57,8 @@ impl AxisAlignedBoundingBox {
 impl Hit for AxisAlignedBoundingBox {
     fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
         for (i, axis) in self.axes().into_iter().enumerate() {
+            // Note: example_vec3[0, 1, 2] = x, y, z
             let ad_inverse = 1.0 / ray.direction[i];
-            // direction[axis_index] is what, exactly? if x,y,z should be ok i think?
-            // TODO: check the code for the rt in one weekend impl on github and figure out how
-            // they're indexing into vec3s for directions like they are
-
             let t0 = (axis.start - ray.origin[i]) * ad_inverse;
             let t1 = (axis.end - ray.origin[i]) * ad_inverse;
 

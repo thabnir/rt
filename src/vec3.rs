@@ -1,4 +1,4 @@
-use crate::camera::{linear_to_gamma, Float};
+use crate::camera::Float;
 use rand::distributions::Distribution;
 use rand::distributions::Uniform;
 use rand::thread_rng;
@@ -7,6 +7,7 @@ use rand::Rng;
 pub type Vec3 = glam::Vec3;
 
 pub trait Vec3Ext {
+    fn as_gamma_vec(&self) -> Vec3;
     fn as_rgb_linear(&self) -> (u8, u8, u8);
     fn as_rgb_gamma(&self) -> (u8, u8, u8);
     fn as_rgb_gamma_string(&self) -> String;
@@ -45,6 +46,12 @@ impl Vec3Ext for Vec3 {
         (r, g, b)
     }
 
+    /// Takes a color in linear space with values from 0.0 to 1.0 and gamma corrects it
+    fn as_gamma_vec(&self) -> Vec3 {
+        let gamma = 1.0 / 2.2;
+        self.powf(gamma)
+    }
+
     fn as_rgb_gamma(&self) -> (u8, u8, u8) {
         let color_range = 0.0..=1.0;
         if !color_range.contains(&self.x) {
@@ -66,9 +73,10 @@ impl Vec3Ext for Vec3 {
             );
         }
         let cmax = 255.0;
-        let r = (linear_to_gamma(self.x) * cmax).round() as u8;
-        let g = (linear_to_gamma(self.y) * cmax).round() as u8;
-        let b = (linear_to_gamma(self.z) * cmax).round() as u8;
+        let gamma_corrected = self.as_gamma_vec();
+        let r = (gamma_corrected.x * cmax).round() as u8;
+        let g = (gamma_corrected.y * cmax).round() as u8;
+        let b = (gamma_corrected.z * cmax).round() as u8;
         (r, g, b)
     }
 
@@ -95,6 +103,7 @@ impl Vec3Ext for Vec3 {
         Self::random(rng, -1.0, 1.0).normalize()
     }
 
+    // TODO: make this not actually random (QMC sampling)
     /// Returns random point in the x-y unit disc
     fn random_in_unit_disc<R: Rng + ?Sized>(rng: &mut R) -> Self {
         let mut v = Vec3::ONE;
@@ -112,8 +121,9 @@ impl Vec3Ext for Vec3 {
     fn random_on_hemisphere(normal: &Vec3) -> Vec3 {
         let unit_vector: Vec3 = Vec3::random_unit(&mut thread_rng());
         if unit_vector.dot(*normal) > 0.0 {
-            return unit_vector; // facing same direction as normal (out from sphere)
+            unit_vector // facing same direction as normal (out from sphere)
+        } else {
+            -unit_vector // facing toward center of sphere (must be inverted to reflect)
         }
-        -unit_vector // facing toward center of sphere (must be inverted to reflect)
     }
 }

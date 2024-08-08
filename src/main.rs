@@ -11,6 +11,7 @@ use crate::{
     vec3::{Vec3, Vec3Ext},
 };
 use camera::Image;
+use core::array;
 use indicatif::ParallelProgressIterator;
 use pixels::{Error, Pixels, SurfaceTexture};
 use rand::{prelude::SliceRandom, thread_rng};
@@ -31,12 +32,12 @@ use winit::{
     window::WindowBuilder,
 };
 
-const WIDTH: u32 = 1600;
-const HEIGHT: u32 = 1000;
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 500;
 
 // TODO: figure out how to apply gamma correction to the preview in a performant way
 fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
-    let update_interval = Duration::from_secs_f32(1.0 / 60.0); // 60 FPS
+    let update_interval = Duration::from_secs_f32(1.0 / 30.0); // 30 FPS
 
     // TODO: use SIMD? For the render buffer it's kind of a no-brainer. Unstable std feature, though
     // Worth checking if there are significant performance benefits
@@ -152,12 +153,9 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
             Event::RedrawRequested(_) => {
                 let frame = pixels.frame_mut();
                 // TODO: Find a better way to convert the preview to gamma space. This code is comically slow.
-                // frame.par_chunks_mut(4).for_each(|chunk| {
-                //     // Fine for alpha as well since sqrt(1.0) = 1.0
-                //     for color in chunk.iter_mut() {
-                //         let normed = *color as f32 / 255.0;
-                //         *color = ((normed.sqrt()) * 255.0) as u8;
-                //     }
+                // frame.par_iter_mut().for_each(|color| {
+                //     let normed = *color as f32 / 255.0;
+                //     *color = (gamma_corrected(normed) * 255.0).round() as u8;
                 // });
 
                 // Update the pixel buffer based on the new rays/pixel colors
@@ -175,13 +173,18 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
     });
 }
 
+fn gamma_corrected(color_value: Float) -> Float {
+    let gamma = 1.0 / 2.2;
+    color_value.powf(gamma)
+}
+
 fn render_thread(
     camera: Camera,
     world: World,
     render_buffer: Arc<RwLock<[u8; (WIDTH * HEIGHT * 4) as usize]>>,
     closing: &AtomicBool,
 ) {
-    let mut render_pixels: [u32; (WIDTH * HEIGHT) as usize] = core::array::from_fn(|i| i as u32);
+    let mut render_pixels: [u32; (WIDTH * HEIGHT) as usize] = array::from_fn(|i| i as u32);
 
     // Pixel render order shuffled so it doesn't render in lines.
     // Looks nicer this way, quicker to make out the general look of the scene.
@@ -190,7 +193,7 @@ fn render_thread(
 
     // Does a sweep with a single ray per pixel for a fast preview, then accumulates detail
     let num_samples_at_pass: Vec<usize> = vec![
-        // If you want more samples than this, that's your problem
+        // If you want more samples than this, that's YOUR problem
         1, 2, 4, 8, 8, 16, 16, 32, 32, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
         64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
         64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
@@ -237,12 +240,15 @@ fn render_thread(
 
             let old_color = {
                 // This could MAYBE be done without a lock for better performance
-                let buffer = render_buffer.read().unwrap();
-                Vec3::new(
-                    buffer[i] as Float / 255.0,
-                    buffer[i + 1] as Float / 255.0,
-                    buffer[i + 2] as Float / 255.0,
-                )
+                if let Ok(buffer) = render_buffer.read() {
+                    Vec3::new(
+                        buffer[i] as Float / 255.0,
+                        buffer[i + 1] as Float / 255.0,
+                        buffer[i + 2] as Float / 255.0,
+                    )
+                } else {
+                    panic!("Failed to acquire buffer read lock in ray tracing loop");
+                }
             };
 
             // Mixes pixel colors proportionally to number of rays used to calculate them
@@ -262,7 +268,7 @@ fn render_thread(
                 buffer[i + 2] = b;
                 // buffer[i + 3] is the alpha channel. Should always contain 0xff.
             } else {
-                panic!("Failed to acquire buffer lock in ray tracing loop");
+                panic!("Failed to acquire buffer write lock in ray tracing loop");
             }
         });
         let sweep_duration = sweep_start.elapsed().as_secs_f64();
@@ -286,7 +292,7 @@ fn main() -> std::io::Result<()> {
     let image_height = HEIGHT as usize;
     let samples_per_pixel = 32; // not relevant for window_preview
     let max_depth = 100;
-    let defocus_angle = 0.0;
+    let defocus_angle = 1.0;
     let focus_distance = 10.0;
 
     let camera = Camera::new(

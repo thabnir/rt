@@ -33,6 +33,7 @@ Resources:
 
     - [ ] Point lights
     - [ ] Surface lights
+
   - [ ] Shadows
   - [ ] Specular highlights
   - [ ] Bloom
@@ -40,6 +41,7 @@ Resources:
 - [ ] Volumes
 
 - [x] Improved camera simulation
+
   - [x] Depth of field
   - [x] Motion blur
 
@@ -48,6 +50,8 @@ Resources:
 ## User Features
 
 - [x] Progressive rendering preview with multiple sweeps
+
+  - [ ] Live gamma correction (figure out exactly what gamma correction is, too)
 
 - [ ] Live interactivity & re-rendering
 
@@ -74,6 +78,7 @@ Resources:
 ## Optimizations
 
 - [x] Multithreaded concurrency with Rayon
+
   - [ ] Actually benchmark and tweak settings. Maybe use tiling?
 
 - [ ] Bounding Volume Hierarchy
@@ -86,24 +91,29 @@ Resources:
 
   - [x] Quasi-Monte-Carlo sampling technique (Halton numbers)
     - [ ] Figure out if this even works (MSE from long baseline render + visual noise inspection of various techniques vs true Monte-Carlo)
-        - [ ] Compare against uniform and stratified sampling methods
+      - [ ] Compare against uniform and stratified sampling methods
     - [ ] Read PBRT's stuff about Monte Carlo and sampling techniques. [book](https://pbr-book.org/4ed/Monte_Carlo_Integration/Improving_Efficiency)
       - [ ] [Multiple-Importance Sampling](https://pbr-book.org/4ed/Monte_Carlo_Integration/Improving_Efficiency#MultipleImportanceSampling) to find the best sampling technique for a given region on the fly
   - [ ] Adaptive sampling to target more rays at noisy areas
+  - [ ] [ReSTIR](https://www.youtube.com/watch?v=gsZiJeaMO48) [paper 1](https://d1qx31qr3h6wln.cloudfront.net/publications/ReSTIR%20GI.pdf)
 
 - [ ] GPU support. **Big** project. Total rewrite. Maybe better suited to a sequel project
 
 ## Development features and chores
 
 - [ ] Debug view support
+
   - [ ] Surface normal visualization
   - [ ] Ray bounding-box collision check visualization (like Sebastian Lague's)
   - [ ] Ray bounce count visualization
 
+- [ ] Decouple the render display from the ray tracer (currently, the accumulator uses the previous pixel values rather than vec3s for rendering information)
+
 - [ ] Performance benchmarks with Criterion
 
 - [ ] Noise/image quality per sample (or per second) benchmarks
-    - [ ] Fixed-seed scene generation for better comparisons
+
+  - [ ] Fixed-seed scene generation for better comparisons
 
 - [ ] Tests
 
