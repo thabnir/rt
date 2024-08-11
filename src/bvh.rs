@@ -1,6 +1,6 @@
 use crate::{
     camera::Float,
-    hittable::Hit,
+    hittable::{Hit, Hittable},
     material::{Lambertian, Material},
     ray::{HitRecord, Ray},
     vec3::Vec3,
@@ -12,6 +12,35 @@ pub struct AxisAlignedBoundingBox {
     x: Range<Float>,
     y: Range<Float>,
     z: Range<Float>,
+}
+
+// TODO: figure out Rustiest way to implement a BVH structure
+// Maybe just treat it like a binary tree?
+// Worth checking out https://docs.rs/bvh/latest/bvh/index.html
+pub struct BVH {
+    children: Vec<Hittable>,
+    bounding_box: AxisAlignedBoundingBox,
+}
+
+impl BVH {
+    pub fn left(&self) -> &Hittable {
+        &self.children[0]
+    }
+    pub fn right(&self) -> &Hittable {
+        &self.children[1]
+    }
+}
+
+impl Hit for BVH {
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
+        if let Some(hr) = self.bounding_box.hit(ray, range) {}
+        None
+    }
+
+    /// Returns the bounding box surrounding all child nodes
+    fn bounding_box(&self) -> &AxisAlignedBoundingBox {
+        &self.bounding_box
+    }
 }
 
 /// Returns the range surrounding r1 and r2
@@ -39,7 +68,12 @@ impl AxisAlignedBoundingBox {
     }
 
     /// Returns the bounding box that contains/surrounds both input boxes `a` and `b`
-    pub fn around(a: AxisAlignedBoundingBox, b: AxisAlignedBoundingBox) -> AxisAlignedBoundingBox {
+    pub fn around(
+        a: &AxisAlignedBoundingBox,
+        b: &AxisAlignedBoundingBox,
+    ) -> AxisAlignedBoundingBox {
+        let a = a.clone();
+        let b = b.clone();
         AxisAlignedBoundingBox {
             x: range_around(a.x, b.x),
             y: range_around(a.y, b.y),
@@ -50,9 +84,16 @@ impl AxisAlignedBoundingBox {
     pub fn axes(&self) -> Vec<&Range<Float>> {
         vec![&self.x, &self.y, &self.z]
     }
+
+    /// Bounding box with size 0
+    pub const ZERO: Self = AxisAlignedBoundingBox {
+        x: 0.0..0.0,
+        y: 0.0..0.0,
+        z: 0.0..0.0,
+    };
 }
 
-// TODO: should this even be a hittalbe, or should it be a separate boolean function?
+// TODO: should this even be a hittalbe, or should it just have a separate boolean function?
 // This doesn't actually return a HitRecord, just says whether the ray hits the box
 impl Hit for AxisAlignedBoundingBox {
     fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
@@ -71,7 +112,7 @@ impl Hit for AxisAlignedBoundingBox {
             }
         }
 
-        // TODO: FIX. This is nonsense and should never be used.
+        // TODO: FIX. This is nonsense and should never be used. Make a new `hit` function that returns a boolean.
         // Decide how to update the interfaces accordingly
         Some(HitRecord {
             point: Vec3::default(),

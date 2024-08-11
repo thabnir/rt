@@ -13,8 +13,13 @@ pub trait Hit: Send + Sync {
     fn bounding_box(&self) -> &AxisAlignedBoundingBox;
 }
 
+pub enum Hittable {
+    Sphere(Sphere),
+}
+
 pub struct World {
     hittable_list: Vec<Hittable>,
+    bounding_box: AxisAlignedBoundingBox, // Bounding box for the entire world
 }
 
 impl IntoIterator for World {
@@ -51,18 +56,19 @@ impl Default for World {
 impl World {
     /// Adds the `hittable` to the world
     pub fn add(&mut self, hittable: Hittable) {
+        let bbox = match &hittable {
+            Hittable::Sphere(s) => s.bounding_box(),
+        };
+        self.bounding_box = AxisAlignedBoundingBox::around(&self.bounding_box, bbox);
         self.hittable_list.push(hittable);
     }
 
     pub fn new() -> Self {
         World {
             hittable_list: Vec::new(),
+            bounding_box: AxisAlignedBoundingBox::ZERO,
         }
     }
-}
-
-pub enum Hittable {
-    Sphere(Sphere),
 }
 
 impl Hit for World {
@@ -90,7 +96,7 @@ impl Hit for World {
     }
 
     fn bounding_box(&self) -> &AxisAlignedBoundingBox {
-        todo!()
+        &self.bounding_box
     }
 }
 
@@ -127,7 +133,7 @@ impl Sphere {
             AxisAlignedBoundingBox::new_from_points(starting_center - rvec, starting_center + rvec);
         let aabb2 =
             AxisAlignedBoundingBox::new_from_points(ending_center - rvec, ending_center + rvec);
-        let bounding_box = AxisAlignedBoundingBox::around(aabb1, aabb2);
+        let bounding_box = AxisAlignedBoundingBox::around(&aabb1, &aabb2);
         Sphere {
             center: starting_center,
             move_vec: Some(ending_center - starting_center),
@@ -149,9 +155,9 @@ impl Sphere {
 impl Hit for Sphere {
     fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
         let oc = self.center(ray.time) - ray.origin;
-        let a = ray.direction.length_squared();
-        let h = ray.direction.dot(oc);
-        let c = oc.length_squared() - self.radius * self.radius;
+        let a = ray.direction.norm_squared();
+        let h = ray.direction.dot(&oc);
+        let c = oc.norm_squared() - self.radius * self.radius;
 
         let discriminant = h * h - a * c;
         if discriminant < 0.0 {
@@ -170,7 +176,7 @@ impl Hit for Sphere {
 
         let point_on_sphere = ray.at(t);
         let mut normal = (point_on_sphere - self.center) / self.radius;
-        let is_front_face = HitRecord::is_front_face(ray, normal);
+        let is_front_face = HitRecord::is_front_face(ray, &normal);
         if !is_front_face {
             normal = -normal; // Set the normal to always face outward
         }

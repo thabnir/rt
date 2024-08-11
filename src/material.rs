@@ -29,15 +29,15 @@ pub trait Scatter: Send + Sync {
 fn reflect(incoming_direction: Vec3, surface_normal: Vec3) -> Vec3 {
     // Scale normal by length of incoming ray's direction projected onto the normal
     // Then reflect the ray by subtracting twice the inverse of its height relative to the surface
-    let scaled_normal = surface_normal * incoming_direction.dot(surface_normal);
+    let scaled_normal = surface_normal * incoming_direction.dot(&surface_normal);
     incoming_direction - scaled_normal * 2.0
 }
 
 /// Expects `incoming_direction` to be a unit vector
 fn refract(incoming_direction: Vec3, surface_normal: Vec3, refractive_ratio: Float) -> Vec3 {
-    let cos_theta = (-incoming_direction.dot(surface_normal)).min(1.0);
+    let cos_theta = (-incoming_direction.dot(&surface_normal)).min(1.0);
     let r_out_perp = (incoming_direction + surface_normal * cos_theta) * refractive_ratio;
-    let x = -((1.0 - r_out_perp.length_squared()).abs().sqrt());
+    let x = -((1.0 - r_out_perp.norm_squared()).abs().sqrt());
     let r_out_parallel = surface_normal * x;
     r_out_parallel + r_out_perp
 }
@@ -91,7 +91,7 @@ impl Scatter for Dielectric {
 
         let incoming_direction = ray_in.direction.normalize();
 
-        let cos_theta = (-incoming_direction.dot(record.normal)).min(1.0);
+        let cos_theta = (-incoming_direction.dot(&record.normal)).min(1.0);
         let sin_theta = (1.0 - cos_theta * cos_theta).sqrt(); // sin^2(x) + cos^2(x) = 1
         let cannot_refract = ri * sin_theta > 1.0;
 

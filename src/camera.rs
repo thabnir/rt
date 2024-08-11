@@ -108,8 +108,8 @@ impl Camera {
         t_range: Range<Float>,
     ) -> Self {
         let w = (lookfrom - lookat).normalize();
-        let u = up.cross(w).normalize();
-        let v = w.cross(u);
+        let u = up.cross(&w).normalize();
+        let v = w.cross(&u);
         let h = (vertical_fov.to_radians() / 2.0).tan();
         let viewport_height = 2.0 * h * focus_distance;
 
@@ -198,7 +198,9 @@ impl Camera {
             if let Some((attenuation, scattered)) = hit.material.scatter(ray, &hit) {
                 // Recursively send out new rays as they bounce until the depth limit
                 if max_depth > 0 {
-                    attenuation * self.raycast(world, &scattered, max_depth - 1)
+                    let bounced_ray = self.raycast(world, &scattered, max_depth - 1);
+                    attenuation.component_mul(&bounced_ray)
+                    // attenuation * self.raycast(world, &scattered, max_depth - 1)
                 } else {
                     Vec3::new(0.0, 0.0, 0.0) // Bounce limit reached
                 }
@@ -322,18 +324,17 @@ pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
         for j in -grid_j..grid_j {
             let radius = 0.2;
             let albedo: Vec3 = Vec3::random(&mut rng, 0.0, 1.0);
-            let offset: Vec3 = Vec3 {
-                x: rng.gen_range(0.0..0.9),
-                y: 0.0,
-                z: rng.gen_range(0.0..0.9),
-            };
+            let offset: Vec3 = Vec3::new(rng.gen_range(0.0..0.9), 0.0, rng.gen_range(0.0..0.9));
             let i_offset = 1.0;
             let j_offset = 1.0;
             let center = Vec3::new(i as Float * i_offset, radius, j as Float * j_offset) + offset;
 
             // let end_center = center + Vec3::new(0.0, rng.gen_range(0.0..0.5), 0.0);
 
-            if center.distance(p1) < 1.2 || center.distance(p2) < 1.2 || center.distance(p3) < 1.2 {
+            if center.metric_distance(&p1) < 1.2
+                || center.metric_distance(&p2) < 1.2
+                || center.metric_distance(&p3) < 1.2
+            {
                 continue;
             }
             let choose = rng.gen_range(0.0..1.0);

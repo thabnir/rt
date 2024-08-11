@@ -47,7 +47,7 @@ impl HitRecord {
         }
     }
 
-    pub fn is_front_face(ray: &Ray, outward_normal: Vec3) -> bool {
+    pub fn is_front_face(ray: &Ray, outward_normal: &Vec3) -> bool {
         ray.direction.dot(outward_normal) < 0.0
     }
 }

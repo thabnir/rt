@@ -2,6 +2,7 @@ pub mod bvh;
 pub mod camera;
 pub mod hittable;
 pub mod material;
+pub mod new_bvh_test;
 pub mod ray;
 pub mod vec3;
 
@@ -37,6 +38,8 @@ const HEIGHT: u32 = 500;
 
 // TODO: figure out how to apply gamma correction to the preview in a performant way
 fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
+    // new_bvh_test::yoink();
+    // return Ok(());
     let update_interval = Duration::from_secs_f32(1.0 / 30.0); // 30 FPS
 
     // TODO: use SIMD? For the render buffer it's kind of a no-brainer. Unstable std feature, though

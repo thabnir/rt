@@ -12,6 +12,8 @@ itertools = "0.13.0"
 winit = "0.28"
 pixels = "0.12"
 env_logger = "0.11.3"
+bvh = "0.10.0"
+nalgebra = "0.33.0"
 
 [profile.profiling]
 inherits = "release"
