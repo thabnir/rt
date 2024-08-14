@@ -1,15 +1,11 @@
 use crate::{
-    hittable::{Hit, Hittable, Sphere, World},
+    hittable::{Hit, Shape, Sphere, World},
     material::{Dielectric, Lambertian, Material, Metal, Scatter},
-    ray::Ray,
-    vec3::{Vec3, Vec3Ext},
+    vec3::{Point3, Ray, Vec3, Vec3Ext},
 };
 use indicatif::{ParallelProgressIterator, ProgressIterator};
 use itertools::Itertools;
-use rand::{
-    distributions::{Distribution, Uniform},
-    thread_rng, Rng,
-};
+use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use std::{
     fs::File,
@@ -25,7 +21,7 @@ pub const T_MAX: Float = Float::MAX;
 
 #[derive(Default)]
 pub struct Camera {
-    center: Vec3,
+    center: Point3,
     pub image_width: usize,
     pub image_height: usize,
     samples_per_pixel: usize,
@@ -158,8 +154,8 @@ impl Camera {
     /// point around the pixel location `x, y`.
     fn get_ray(&self, x: usize, y: usize, i: usize) -> Ray {
         // Offsets uniformly distributed within 1/2 pixel ensure 100% coverage with 0 overlap
-        let range = Uniform::from(-0.5..0.5);
-        let mut rng = thread_rng();
+        // let range = Uniform::from(-0.5..0.5);
+        // let mut rng = thread_rng();
 
         // Pure Monte-Carlo sampling (converges slowly):
         // let offset = (range.sample(&mut rng), range.sample(&mut rng));
@@ -171,7 +167,7 @@ impl Camera {
         // https://cseweb.ucsd.edu/classes/sp17/cse168-a/CSE168_07_Random.pdf
         // Also todo: benchmarking performance. less important here but still important
 
-        // TODO: add adaptive sampling. Seems like it's super important tbh
+        // TODO: push adaptive sampling. Seems like it's super important tbh
         // https://cs184.eecs.berkeley.edu/sp24/docs/hw3-1-part-5
         // https://cseweb.ucsd.edu/classes/sp17/cse168-a/CSE168_07_Random.pdf
         // https://cs184.eecs.berkeley.edu/sp24
@@ -186,11 +182,7 @@ impl Camera {
             // TODO: implement better sampling technique for this (QMC stuff)
             self.defocus_disk_sample() // random blur
         };
-        Ray {
-            origin,
-            direction: pixel_sample - origin,
-            time: range.sample(&mut rng) + 0.5,
-        }
+        Ray::new(origin.into(), pixel_sample - origin)
     }
 
     fn raycast(&self, world: &World, ray: &Ray, max_depth: usize) -> Vec3 {
@@ -200,7 +192,6 @@ impl Camera {
                 if max_depth > 0 {
                     let bounced_ray = self.raycast(world, &scattered, max_depth - 1);
                     attenuation.component_mul(&bounced_ray)
-                    // attenuation * self.raycast(world, &scattered, max_depth - 1)
                 } else {
                     Vec3::new(0.0, 0.0, 0.0) // Bounce limit reached
                 }
@@ -293,32 +284,32 @@ impl Camera {
 
 pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
     let mut rng = thread_rng();
-    let mut world: World = World::new();
+    let mut shapes = Vec::new();
     let ground_mat = Material::Lambertian(Lambertian {
         albedo: Vec3::new(0.5, 0.5, 0.5),
     });
-    let ground = Hittable::Sphere(Sphere::new(
+    let ground = Shape::Sphere(Sphere::new(
         Vec3::new(0.0, -1000.0, -1.0),
         1000.0,
         ground_mat,
     ));
-    world.add(ground);
+    shapes.push(ground);
     let mat1 = Material::Dielectric(Dielectric {
         refractive_index: 1.5,
     });
     let p1 = Vec3::new(0.0, 1.0, 0.0);
-    world.add(Hittable::Sphere(Sphere::new(p1, 1.0, mat1)));
+    shapes.push(Shape::Sphere(Sphere::new(p1, 1.0, mat1)));
     let mat2 = Material::Lambertian(Lambertian {
         albedo: Vec3::new(0.4, 0.2, 0.1),
     });
     let p2 = Vec3::new(-4.0, 1.0, 0.0);
-    world.add(Hittable::Sphere(Sphere::new(p2, 1.0, mat2)));
+    shapes.push(Shape::Sphere(Sphere::new(p2, 1.0, mat2)));
     let mat3 = Material::Metal(Metal {
         albedo: Vec3::new(0.7, 0.6, 0.5),
         fuzz: 0.0,
     });
     let p3 = Vec3::new(4.0, 1.0, 0.0);
-    world.add(Hittable::Sphere(Sphere::new(p3, 1.0, mat3)));
+    shapes.push(Shape::Sphere(Sphere::new(p3, 1.0, mat3)));
 
     for i in -grid_i..grid_i {
         for j in -grid_j..grid_j {
@@ -352,11 +343,11 @@ pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
                     }
                 };
                 // Box::new(Sphere::new_moving(center, end_center, radius, mat))
-                Hittable::Sphere(Sphere::new(center, radius, mat))
+                Shape::Sphere(Sphere::new(center, radius, mat))
             };
 
-            world.add(sphere);
+            shapes.push(sphere);
         }
     }
-    world
+    World::build(shapes)
 }

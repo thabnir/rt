@@ -1,124 +1,124 @@
 use crate::{
-    bvh::AxisAlignedBoundingBox,
     camera::Float,
+    intersection::Intersection,
     material::Material,
-    ray::{HitRecord, Ray},
-    vec3::Vec3,
+    vec3::{Point3, Ray, RayExt, Vec3},
 };
-use std::ops::{Deref, DerefMut, Range};
-
-pub trait Hit: Send + Sync {
-    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord>;
-    /// Returns the bounding box over the entire range of motion
-    fn bounding_box(&self) -> &AxisAlignedBoundingBox;
-}
-
-pub enum Hittable {
-    Sphere(Sphere),
-}
+use bvh::{
+    aabb::{Aabb, Bounded},
+    bounding_hierarchy::{BHShape, BoundingHierarchy},
+    bvh::Bvh,
+};
+use std::ops::Range;
 
 pub struct World {
-    hittable_list: Vec<Hittable>,
-    bounding_box: AxisAlignedBoundingBox, // Bounding box for the entire world
-}
-
-impl IntoIterator for World {
-    type Item = Hittable;
-
-    type IntoIter = <Vec<Hittable> as IntoIterator>::IntoIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.hittable_list.into_iter()
-    }
-}
-
-// TODO: decide whether I need these implementations of Deref and DerefMut
-impl Deref for World {
-    type Target = [Hittable];
-
-    fn deref(&self) -> &Self::Target {
-        &self.hittable_list[..]
-    }
-}
-
-impl DerefMut for World {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.hittable_list[..]
-    }
-}
-
-impl Default for World {
-    fn default() -> Self {
-        Self::new()
-    }
+    pub shapes: Vec<Shape>,
+    pub bvh: Bvh<Float, 3>,
 }
 
 impl World {
-    /// Adds the `hittable` to the world
-    pub fn add(&mut self, hittable: Hittable) {
-        let bbox = match &hittable {
-            Hittable::Sphere(s) => s.bounding_box(),
-        };
-        self.bounding_box = AxisAlignedBoundingBox::around(&self.bounding_box, bbox);
-        self.hittable_list.push(hittable);
+    /// Constructs a new `World` and builds its `BVH` in parallel
+    pub fn build(mut shapes: Vec<Shape>) -> Self {
+        let bvh = Bvh::build_par(&mut shapes);
+        World { shapes, bvh }
+    }
+}
+
+pub trait Hit: Send + Sync {
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection>;
+}
+
+pub enum Shape {
+    Sphere(Sphere),
+}
+
+impl Hit for Shape {
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection> {
+        match self {
+            Shape::Sphere(s) => s.hit(ray, range),
+        }
+    }
+}
+
+impl Bounded<Float, 3> for Shape {
+    fn aabb(&self) -> Aabb<Float, 3> {
+        match self {
+            Shape::Sphere(s) => s.aabb(),
+        }
+    }
+}
+impl BHShape<Float, 3> for Shape {
+    fn set_bh_node_index(&mut self, index: usize) {
+        match self {
+            Shape::Sphere(s) => s.set_bh_node_index(index),
+        }
     }
 
-    pub fn new() -> Self {
-        World {
-            hittable_list: Vec::new(),
-            bounding_box: AxisAlignedBoundingBox::ZERO,
+    fn bh_node_index(&self) -> usize {
+        match self {
+            Shape::Sphere(s) => s.bh_node_index(),
         }
     }
 }
 
 impl Hit for World {
     /// Returns nearest hit to camera for the given ray within the given view range
-    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
-        // Save nearest collision to camera to avoid checking for collisions against objects obscured by those we've already hit
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection> {
+        // Save nearest collision to avoid checking for collisions against objects obscured by those we've already hit
         let mut nearest_hit_dist = range.end;
         let mut nearest_hit = None;
 
         // TODO: optimize this, don't need to test against every object for every ray
         // a BVH seems like the best option, though it's complicated
         // Also, matching an enum with all hittable types would likely improve performance vs OOP style
-        for hittable in self.iter() {
-            match hittable {
-                Hittable::Sphere(sphere) => {
-                    if let Some(hit) = sphere.hit(ray, &(range.start..nearest_hit_dist)) {
-                        nearest_hit_dist = hit.t;
-                        nearest_hit = Some(hit);
-                    }
-                }
+        // let hit_sphere_aabbs = bvh.traverse(&ray, &spheres);
+        for shape in self.bvh.nearest_traverse_iterator(ray, &self.shapes) {
+            if let Some(intersection) = shape.hit(ray, &(range.start..nearest_hit_dist)) {
+                nearest_hit_dist = intersection.t;
+                nearest_hit = Some(intersection);
             }
         }
-
         nearest_hit
-    }
-
-    fn bounding_box(&self) -> &AxisAlignedBoundingBox {
-        &self.bounding_box
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Sphere {
-    center: Vec3,
+    center: Point3,
     move_vec: Option<Vec3>,
     radius: Float,
     pub material: Material,
-    bounding_box: AxisAlignedBoundingBox,
+    /// For use in the BVH
+    node_index: usize,
+}
+
+impl Bounded<f32, 3> for Sphere {
+    fn aabb(&self) -> Aabb<f32, 3> {
+        let half_size = Vec3::new(self.radius, self.radius, self.radius);
+        let min = self.center - half_size;
+        let max = self.center + half_size;
+        Aabb::with_bounds(min.into(), max.into())
+    }
+}
+
+impl BHShape<f32, 3> for Sphere {
+    fn set_bh_node_index(&mut self, index: usize) {
+        self.node_index = index;
+    }
+
+    fn bh_node_index(&self) -> usize {
+        self.node_index
+    }
 }
 
 impl Sphere {
     pub fn new(center: Vec3, radius: Float, material: Material) -> Self {
-        let rvec = Vec3::new(radius, radius, radius);
-        let bounding_box = AxisAlignedBoundingBox::new_from_points(center - rvec, center + rvec);
         Sphere {
             center,
             move_vec: None, // Stationary by default
             radius: radius.max(0.0),
             material,
-            bounding_box,
+            node_index: 0,
         }
     }
 
@@ -128,18 +128,12 @@ impl Sphere {
         radius: Float,
         material: Material,
     ) -> Self {
-        let rvec = Vec3::new(radius, radius, radius);
-        let aabb1 =
-            AxisAlignedBoundingBox::new_from_points(starting_center - rvec, starting_center + rvec);
-        let aabb2 =
-            AxisAlignedBoundingBox::new_from_points(ending_center - rvec, ending_center + rvec);
-        let bounding_box = AxisAlignedBoundingBox::around(&aabb1, &aabb2);
         Sphere {
             center: starting_center,
             move_vec: Some(ending_center - starting_center),
             radius: radius.max(0.0),
             material,
-            bounding_box,
+            node_index: 0,
         }
     }
 
@@ -153,8 +147,8 @@ impl Sphere {
 }
 
 impl Hit for Sphere {
-    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<HitRecord> {
-        let oc = self.center(ray.time) - ray.origin;
+    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection> {
+        let oc = self.center - ray.origin.coords;
         let a = ray.direction.norm_squared();
         let h = ray.direction.dot(&oc);
         let c = oc.norm_squared() - self.radius * self.radius;
@@ -176,21 +170,17 @@ impl Hit for Sphere {
 
         let point_on_sphere = ray.at(t);
         let mut normal = (point_on_sphere - self.center) / self.radius;
-        let is_front_face = HitRecord::is_front_face(ray, &normal);
+        let is_front_face = Intersection::is_front_face(ray, &normal);
         if !is_front_face {
             normal = -normal; // Set the normal to always face outward
         }
 
-        Some(HitRecord::new(
+        Some(Intersection::new(
             point_on_sphere,
             normal,
             t,
             self.material,
             is_front_face,
         ))
-    }
-
-    fn bounding_box(&self) -> &AxisAlignedBoundingBox {
-        &self.bounding_box
     }
 }

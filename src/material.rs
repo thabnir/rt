@@ -1,7 +1,7 @@
 use crate::{
     camera::Float,
-    ray::{HitRecord, Ray},
-    vec3::{Vec3, Vec3Ext},
+    intersection::Intersection,
+    vec3::{Ray, Vec3, Vec3Ext},
 };
 use rand::{thread_rng, Rng};
 
@@ -13,7 +13,7 @@ pub enum Material {
 }
 
 impl Scatter for Material {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
+    fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)> {
         match self {
             Material::Lambertian(lambertian) => lambertian.scatter(ray_in, record),
             Material::Metal(metal) => metal.scatter(ray_in, record),
@@ -23,12 +23,12 @@ impl Scatter for Material {
 }
 
 pub trait Scatter: Send + Sync {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)>;
+    fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)>;
 }
 
 fn reflect(incoming_direction: Vec3, surface_normal: Vec3) -> Vec3 {
     // Scale normal by length of incoming ray's direction projected onto the normal
-    // Then reflect the ray by subtracting twice the inverse of its height relative to the surface
+    // Then reflect the ray by subtracting twice its height relative to the surface
     let scaled_normal = surface_normal * incoming_direction.dot(&surface_normal);
     incoming_direction - scaled_normal * 2.0
 }
@@ -54,21 +54,21 @@ pub struct Metal {
 }
 
 impl Scatter for Metal {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
-        let reflected = reflect(ray_in.direction, record.normal)
+    fn scatter(&self, ray_in: &Ray, intersection: &Intersection) -> Option<(Vec3, Ray)> {
+        let reflected_dir = reflect(ray_in.direction, intersection.normal)
             + Vec3::random_unit(&mut thread_rng()) * self.fuzz;
-        let scattered = Ray::new(record.point, reflected, ray_in.time);
+        let scattered = Ray::new(intersection.point.into(), reflected_dir);
         Some((self.albedo, scattered))
     }
 }
 
 impl Scatter for Lambertian {
-    fn scatter(&self, ray_in: &Ray, hit: &HitRecord) -> Option<(Vec3, Ray)> {
+    fn scatter(&self, _ray_in: &Ray, hit: &Intersection) -> Option<(Vec3, Ray)> {
         let mut scatter_dir = hit.normal + Vec3::random_unit(&mut thread_rng());
         if scatter_dir.near_zero() {
             scatter_dir = hit.normal;
         }
-        let scattered = Ray::new(hit.point, scatter_dir, ray_in.time);
+        let scattered = Ray::new(hit.point.into(), scatter_dir);
         Some((self.albedo, scattered))
     }
 }
@@ -82,7 +82,7 @@ pub struct Dielectric {
 }
 
 impl Scatter for Dielectric {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
+    fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)> {
         let ri = if record.is_front_face {
             1.0 / self.refractive_index
         } else {
@@ -102,7 +102,7 @@ impl Scatter for Dielectric {
         } else {
             refract(incoming_direction, record.normal, ri)
         };
-        Some((Vec3::ONE, Ray::new(record.point, direction, ray_in.time)))
+        Some((Vec3::ONE, Ray::new(record.point.into(), direction)))
     }
 }
 

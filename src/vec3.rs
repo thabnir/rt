@@ -1,11 +1,23 @@
 use crate::camera::Float;
-use rand::distributions::Distribution;
-use rand::distributions::Uniform;
+use rand::distributions::{Distribution, Uniform};
 use rand::thread_rng;
 use rand::Rng;
 
 // pub type Vec3 = glam::Vec3;
+pub type Ray = bvh::ray::Ray<Float, 3>;
 pub type Vec3 = nalgebra::Vector3<Float>;
+// pub type Point3 = nalgebra::Point3<Float>;
+pub type Point3 = nalgebra::Vector3<Float>;
+
+pub trait RayExt {
+    fn at(&self, time: Float) -> Vec3;
+}
+
+impl RayExt for Ray {
+    fn at(&self, time: Float) -> Vec3 {
+        self.direction * time + self.origin.coords
+    }
+}
 
 pub trait Vec3Ext {
     const ONE: Vec3;
@@ -123,12 +135,13 @@ impl Vec3Ext for Vec3 {
         v
     }
 
+    /// Returns a random vector in the unit hemisphere with the input `normal` as its pole
     fn random_on_hemisphere(normal: &Vec3) -> Vec3 {
         let unit_vector: Vec3 = Vec3::random_unit(&mut thread_rng());
         if unit_vector.dot(normal) > 0.0 {
-            unit_vector // facing same direction as normal (out from sphere)
+            unit_vector
         } else {
-            -unit_vector // facing toward center of sphere (must be inverted to reflect)
+            -unit_vector
         }
     }
 }
