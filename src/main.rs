@@ -270,6 +270,9 @@ fn render_thread(
                 panic!("Failed to acquire buffer write lock in ray tracing loop");
             }
         });
+        if closing.load(Ordering::Relaxed) {
+            return;
+        }
         let sweep_duration = sweep_start.elapsed().as_secs_f64();
         let total_duration = first_start.elapsed().as_secs_f64();
         let total_rays_this_sweep = num_samples * WIDTH as usize * HEIGHT as usize;
