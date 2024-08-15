@@ -1,16 +1,20 @@
+use std::sync::Arc;
+
 use crate::{
     camera::Float,
     intersection::Intersection,
+    texture::{Texture, TextureEnum},
     vec3::{Ray, Vec3, Vec3Ext},
 };
 use rand::{thread_rng, Rng};
 
-#[derive(Clone, Copy, Debug)]
 pub enum Material {
     Lambertian(Lambertian),
     Metal(Metal),
     Dielectric(Dielectric),
 }
+// TODO: change out uses of Vec3 for a Color type where applicable. Make said Color type.
+// Make invalid states unrepresentable and whatnot.
 
 impl Scatter for Material {
     fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)> {
@@ -42,9 +46,21 @@ fn refract(incoming_direction: Vec3, surface_normal: Vec3, refractive_ratio: Flo
     r_out_parallel + r_out_perp
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 pub struct Lambertian {
-    pub albedo: Vec3,
+    pub texture: Arc<TextureEnum>,
+}
+
+impl Lambertian {
+    pub fn new(texture: Arc<TextureEnum>) -> Self {
+        Lambertian { texture }
+    }
+
+    pub fn new_take(texture: TextureEnum) -> Self {
+        Lambertian {
+            texture: Arc::new(texture),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,16 +85,15 @@ impl Scatter for Lambertian {
             scatter_dir = hit.normal;
         }
         let scattered = Ray::new(hit.point.into(), scatter_dir);
-        Some((self.albedo, scattered))
+        let attenuation = self.texture.value(hit.u, hit.v, hit.point);
+        Some((attenuation, scattered))
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Dielectric {
-    /// Refractive index in vacuum or air, or the ratio of the material's
-    /// refractive index over the refractive index of the enclosing media
+    /// Refractive index in vacuum or air, or the ratio of the material's RI over the RI of the enclosing medium
     pub refractive_index: Float,
-    // albedo: Scalar, // TBD if this is needed (how to implement colored transparents?)
 }
 
 impl Scatter for Dielectric {

@@ -9,7 +9,10 @@ use bvh::{
     bounding_hierarchy::{BHShape, BoundingHierarchy},
     bvh::Bvh,
 };
-use std::ops::Range;
+use std::{
+    f32::consts::{PI, TAU},
+    ops::Range,
+};
 
 pub struct World {
     pub shapes: Vec<Shape>,
@@ -64,14 +67,9 @@ impl BHShape<Float, 3> for Shape {
 impl Hit for World {
     /// Returns nearest hit to camera for the given ray within the given view range
     fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection> {
-        // Save nearest collision to avoid checking for collisions against objects obscured by those we've already hit
+        // Only return the nearest collision
         let mut nearest_hit_dist = range.end;
         let mut nearest_hit = None;
-
-        // TODO: optimize this, don't need to test against every object for every ray
-        // a BVH seems like the best option, though it's complicated
-        // Also, matching an enum with all hittable types would likely improve performance vs OOP style
-        // let hit_sphere_aabbs = bvh.traverse(&ray, &spheres);
         for shape in self.bvh.nearest_traverse_iterator(ray, &self.shapes) {
             if let Some(intersection) = shape.hit(ray, &(range.start..nearest_hit_dist)) {
                 nearest_hit_dist = intersection.t;
@@ -82,7 +80,6 @@ impl Hit for World {
     }
 }
 
-#[derive(Debug)]
 pub struct Sphere {
     center: Point3,
     move_vec: Option<Vec3>,
@@ -122,21 +119,6 @@ impl Sphere {
         }
     }
 
-    pub fn new_moving(
-        starting_center: Vec3,
-        ending_center: Vec3,
-        radius: Float,
-        material: Material,
-    ) -> Self {
-        Sphere {
-            center: starting_center,
-            move_vec: Some(ending_center - starting_center),
-            radius: radius.max(0.0),
-            material,
-            node_index: 0,
-        }
-    }
-
     pub fn center(&self, time: Float) -> Vec3 {
         if let Some(move_vec) = self.move_vec {
             self.center + move_vec * time // Lerp from starting to ending position
@@ -144,6 +126,33 @@ impl Sphere {
             self.center
         }
     }
+}
+
+/// Returns the `(u, v)` coordinates of an `intersection_point` on the unit sphere centered at the
+/// origin
+/// ex:
+///
+/// ```rust
+/// # use rt::vec3::Vec3;
+/// # use rt::hittable::get_unit_sphere_uv;
+/// # use approx::abs_diff_eq;
+/// let (u1, v1) = get_unit_sphere_uv(Vec3::new(1.0, 0.0, 0.0));
+/// let (u2, v2) = get_unit_sphere_uv(Vec3::new(0.0, 1.0, 0.0));
+/// let (u3, v3) = get_unit_sphere_uv(Vec3::new(0.0, 0.0, 1.0));
+///
+/// abs_diff_eq!(u1, 0.5);
+/// abs_diff_eq!(v1, 0.5);
+/// abs_diff_eq!(u2, 0.5);
+/// abs_diff_eq!(v2, 1.0);
+/// abs_diff_eq!(u3, 0.25);
+/// abs_diff_eq!(v3, 0.5);
+/// ```
+pub fn get_unit_sphere_uv(intersection_point: Point3) -> (Float, Float) {
+    let theta = (-intersection_point.y).acos();
+    let phi = Float::atan2(-intersection_point.z, intersection_point.x) + PI;
+    let u = phi / TAU;
+    let v = theta / PI;
+    (u, v)
 }
 
 impl Hit for Sphere {
@@ -175,12 +184,16 @@ impl Hit for Sphere {
             normal = -normal; // Set the normal to always face outward
         }
 
+        let (u, v) = get_unit_sphere_uv(normal);
+
         Some(Intersection::new(
             point_on_sphere,
             normal,
             t,
-            self.material,
+            &self.material,
             is_front_face,
+            u,
+            v,
         ))
     }
 }

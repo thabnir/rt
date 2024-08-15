@@ -1,16 +1,19 @@
 use crate::{
     hittable::{Hit, Shape, Sphere, World},
     material::{Dielectric, Lambertian, Material, Metal, Scatter},
+    texture::{CheckerTexture, ImageTexture, SolidColor, TextureEnum},
     vec3::{Point3, Ray, Vec3, Vec3Ext},
 };
+use image::RgbImage;
 use indicatif::{ParallelProgressIterator, ProgressIterator};
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use std::{
     fs::File,
-    io::{BufWriter, Write},
+    io::{self, BufWriter, Write},
     ops::Range,
+    sync::Arc,
 };
 
 pub type Float = f32;
@@ -72,22 +75,6 @@ fn halton_sequence(base: u64, sequence_length: u64) -> impl std::iter::Iterator<
     })
 }
 
-// TODO: make a uniform sequence for a set sample value.
-// And think about how it should be done
-// fn uniform_sequence(sequence_length_sqrt: u64) -> impl std::iter::Iterator<Item = Float> {
-//     let mut index = 0;
-//     let n = sequence_length_sqrt.pow(2);
-//     std::iter::from_fn(move || {
-//         if index >= n {
-//             return None;
-//         }
-//         let x = index % sequence_length_sqrt;
-//         let y = index / sequence_length_sqrt;
-//         index += 1;
-//         Some()
-//     })
-// }
-
 impl Camera {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -125,9 +112,11 @@ impl Camera {
         // Top left pixel center
         let pixel00_loc = vp_upper_left + (pixel_du + pixel_dv) / 2.0;
 
+        // if let Some(da) = defocus_angle {
         let defocus_radius = focus_distance * (defocus_angle / 2.0).to_radians().tan();
         let defocus_disk_u = u * defocus_radius;
         let defocus_disk_v = v * defocus_radius;
+        // }
 
         let rng_map = halton_sequence(2, 1024 * 1024)
             .zip(halton_sequence(3, 1024 * 1024))
@@ -153,12 +142,6 @@ impl Camera {
     /// Return a camera ray originating from the defocus disk and directed at a random
     /// point around the pixel location `x, y`.
     fn get_ray(&self, x: usize, y: usize, i: usize) -> Ray {
-        // Offsets uniformly distributed within 1/2 pixel ensure 100% coverage with 0 overlap
-        // let range = Uniform::from(-0.5..0.5);
-        // let mut rng = thread_rng();
-
-        // Pure Monte-Carlo sampling (converges slowly):
-        // let offset = (range.sample(&mut rng), range.sample(&mut rng));
         // Halton sequence sampling (I have no idea if I'm doing this right)
         // httpshttps://psgraphics.blogspot.com/2018/10/flavors-of-sampling-in-ray-tracing.html
         // TODO: test if this actually reduces mean error at different sample levels
@@ -167,7 +150,7 @@ impl Camera {
         // https://cseweb.ucsd.edu/classes/sp17/cse168-a/CSE168_07_Random.pdf
         // Also todo: benchmarking performance. less important here but still important
 
-        // TODO: push adaptive sampling. Seems like it's super important tbh
+        // TODO: adaptive sampling?
         // https://cs184.eecs.berkeley.edu/sp24/docs/hw3-1-part-5
         // https://cseweb.ucsd.edu/classes/sp17/cse168-a/CSE168_07_Random.pdf
         // https://cs184.eecs.berkeley.edu/sp24
@@ -176,6 +159,9 @@ impl Camera {
         let pixel_sample = self.pixel00_loc
             + (self.pixel_du * (x as Float + offset.0))
             + (self.pixel_dv * (y as Float + offset.1));
+        // let origin = self
+        //     .defocus_angle
+        //     .map_or(self.center, |_| self.defocus_disk_sample());
         let origin = if self.defocus_angle <= 0.0 {
             self.center // no blur
         } else {
@@ -282,16 +268,76 @@ impl Camera {
     }
 }
 
+pub fn gen_checkered() -> World {
+    let mut shapes = Vec::new();
+
+    let even_texture = Arc::new(TextureEnum::SolidColor(SolidColor::new(Vec3::new(
+        0.2, 0.3, 0.1,
+    ))));
+    let odd_texture = Arc::new(TextureEnum::SolidColor(SolidColor::new(Vec3::new(
+        0.9, 0.9, 0.9,
+    ))));
+
+    let checker_tex = Arc::new(TextureEnum::CheckerTexture(CheckerTexture::new(
+        0.31,
+        even_texture,
+        odd_texture,
+    )));
+
+    let mat1 = Material::Lambertian(Lambertian::new(checker_tex.clone()));
+    let mat2 = Material::Lambertian(Lambertian::new(checker_tex.clone()));
+
+    let sphere_lower = Shape::Sphere(Sphere::new(Vec3::new(0.0, -10.0, 0.0), 10.0, mat1));
+    let sphere_upper = Shape::Sphere(Sphere::new(Vec3::new(0.0, 10.0, 0.0), 10.0, mat2));
+    shapes.push(sphere_lower);
+    shapes.push(sphere_upper);
+    World::build(shapes)
+}
+
+pub fn gen_earth() -> io::Result<World> {
+    let mut shapes = Vec::new();
+    let earth_bytes: &[u8] = include_bytes!("./assets/textures/earthmap.jpg");
+    let earth_image: RgbImage = ImageTexture::load_embedded_image(earth_bytes);
+    let earth_tex = ImageTexture::new(earth_image);
+    let earth_mat = Material::Lambertian({
+        let texture = Arc::new(TextureEnum::ImageTexture(earth_tex));
+        Lambertian::new(texture)
+    });
+    let earth_ball = Shape::Sphere(Sphere::new(Vec3::new(0.0, 0.0, 0.0), 2.0, earth_mat));
+
+    shapes.push(earth_ball);
+
+    Ok(World::build(shapes))
+}
+
 pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
     let mut rng = thread_rng();
     let mut shapes = Vec::new();
-    let ground_mat = Material::Lambertian(Lambertian {
-        albedo: Vec3::new(0.5, 0.5, 0.5),
-    });
+
+    let earth_bytes = include_bytes!("./assets/textures/earthmap.jpg");
+    let mars_bytes = include_bytes!("./assets/textures/saul.webp");
+
+    let earth_image = ImageTexture::load_embedded_image(earth_bytes);
+    let mars_image = ImageTexture::load_embedded_image(mars_bytes);
+
+    let earth_tex = Arc::new(TextureEnum::ImageTexture(ImageTexture::new(earth_image)));
+    let mars_tex = Arc::new(TextureEnum::ImageTexture(ImageTexture::new(mars_image)));
+
+    // let even_texture = TextureEnum::SolidColor(SolidColor::new(Vec3::new(0.0, 0.0, 0.0)));
+    // let odd_texture = TextureEnum::SolidColor(SolidColor::new(Vec3::new(0.95, 0.95, 0.95)));
+    let checker_tex = CheckerTexture::new(0.31, earth_tex.clone(), mars_tex.clone());
+    let checker_tex = TextureEnum::CheckerTexture(checker_tex);
+    let checker_tex = Arc::new(checker_tex);
+
     let ground = Shape::Sphere(Sphere::new(
         Vec3::new(0.0, -1000.0, -1.0),
         1000.0,
-        ground_mat,
+        Material::Lambertian({
+            let texture = &checker_tex;
+            Lambertian {
+                texture: texture.clone(),
+            }
+        }),
     ));
     shapes.push(ground);
     let mat1 = Material::Dielectric(Dielectric {
@@ -299,17 +345,26 @@ pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
     });
     let p1 = Vec3::new(0.0, 1.0, 0.0);
     shapes.push(Shape::Sphere(Sphere::new(p1, 1.0, mat1)));
-    let mat2 = Material::Lambertian(Lambertian {
-        albedo: Vec3::new(0.4, 0.2, 0.1),
-    });
-    let p2 = Vec3::new(-4.0, 1.0, 0.0);
-    shapes.push(Shape::Sphere(Sphere::new(p2, 1.0, mat2)));
+
+    // let tex2 = Arc::new(TextureEnum::SolidColor(SolidColor::new(Vec3::new(
+    //     0.4, 0.2, 0.1,
+    // ))));
+    // let mat2 = Material::Lambertian(Lambertian::new(tex2.clone()));
+
+    let mars_mat = Material::Lambertian(Lambertian::new(mars_tex.clone()));
+    let p2 = Vec3::new(-3.0, 1.0, 0.0);
+    shapes.push(Shape::Sphere(Sphere::new(p2, 1.0, mars_mat)));
     let mat3 = Material::Metal(Metal {
         albedo: Vec3::new(0.7, 0.6, 0.5),
         fuzz: 0.0,
     });
-    let p3 = Vec3::new(4.0, 1.0, 0.0);
+    let p3 = Vec3::new(-5.0, 1.0, 0.0);
     shapes.push(Shape::Sphere(Sphere::new(p3, 1.0, mat3)));
+
+    let p4 = Vec3::new(3.0, 1.0, 0.0);
+    let earth_mat = Material::Lambertian(Lambertian::new(earth_tex.clone()));
+    let earth_ball = Shape::Sphere(Sphere::new(p4, 1.0, earth_mat));
+    shapes.push(earth_ball);
 
     for i in -grid_i..grid_i {
         for j in -grid_j..grid_j {
@@ -319,8 +374,6 @@ pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
             let i_offset = 1.0;
             let j_offset = 1.0;
             let center = Vec3::new(i as Float * i_offset, radius, j as Float * j_offset) + offset;
-
-            // let end_center = center + Vec3::new(0.0, rng.gen_range(0.0..0.5), 0.0);
 
             if center.metric_distance(&p1) < 1.2
                 || center.metric_distance(&p2) < 1.2
@@ -339,10 +392,12 @@ pub fn gen_scene(grid_i: i16, grid_j: i16) -> World {
                         let fuzz = rng.gen_range(0.0..0.5);
                         Material::Metal(Metal { albedo, fuzz })
                     } else {
-                        Material::Lambertian(Lambertian { albedo })
+                        Material::Lambertian({
+                            let texture = TextureEnum::SolidColor(SolidColor::new(albedo));
+                            Lambertian::new_take(texture)
+                        })
                     }
                 };
-                // Box::new(Sphere::new_moving(center, end_center, radius, mat))
                 Shape::Sphere(Sphere::new(center, radius, mat))
             };
 

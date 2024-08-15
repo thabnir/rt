@@ -39,7 +39,6 @@ impl Vec3Ext for Vec3 {
     fn as_gamma_vec(&self) -> Vec3 {
         let gamma = 1.0 / 2.2;
         Vec3::new(self.x.powf(gamma), self.y.powf(gamma), self.z.powf(gamma))
-        // self.powf(gamma)
     }
 
     fn as_rgb_linear(&self) -> (u8, u8, u8) {

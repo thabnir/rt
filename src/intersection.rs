@@ -4,22 +4,25 @@ use crate::{
     vec3::{Point3, Ray, Vec3},
 };
 
-#[derive(Clone)]
-pub struct Intersection {
+pub struct Intersection<'a> {
     pub point: Point3,
     pub normal: Vec3,
-    pub material: Material,
+    pub material: &'a Material,
     pub t: Float,
     pub is_front_face: bool,
+    pub u: Float,
+    pub v: Float,
 }
 
-impl Intersection {
+impl<'a> Intersection<'a> {
     pub fn new(
         point: Point3,
         normal: Vec3,
         t: Float,
-        material: Material,
+        material: &'a Material,
         is_front_face: bool,
+        u: Float,
+        v: Float,
     ) -> Self {
         Intersection {
             point,
@@ -27,6 +30,8 @@ impl Intersection {
             material,
             t,
             is_front_face,
+            u,
+            v,
         }
     }
 

@@ -13,6 +13,8 @@ pixels = "0.12"
 env_logger = "0.11.3"
 bvh = "0.10.0"
 nalgebra = "0.33.0"
+approx = "0.5.1"
+image = "0.25.2"
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 bvh = { version = "0.10.0", features = ["simd"] }

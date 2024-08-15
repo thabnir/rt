@@ -2,14 +2,15 @@ pub mod camera;
 pub mod hittable;
 pub mod intersection;
 pub mod material;
+pub mod texture;
 pub mod vec3;
 
 use crate::{
-    camera::{gen_scene, Camera, Float},
+    camera::{Camera, Float},
     hittable::World,
     vec3::{Vec3, Vec3Ext},
 };
-use camera::Image;
+use camera::{gen_checkered, gen_earth, gen_scene, Image};
 use core::array;
 use indicatif::ParallelProgressIterator;
 use pixels::{Error, Pixels, SurfaceTexture};
@@ -31,12 +32,13 @@ use winit::{
     window::WindowBuilder,
 };
 
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 500;
+const WIDTH: u32 = 1920;
+const HEIGHT: u32 = 1080;
 
 // TODO: figure out how to apply gamma correction to the preview in a performant way
 fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
     let update_interval = Duration::from_secs_f32(1.0 / 30.0); // 30 FPS
+    let start_time = Instant::now();
 
     // TODO: use SIMD? For the render buffer it's kind of a no-brainer. Unstable std feature, though
     // Worth checking if there are significant performance benefits
@@ -94,6 +96,10 @@ fn window_preview(camera: Camera, world: World) -> Result<(), Error> {
                 ..
             } => {
                 // Write the image as it is on close request
+                println!(
+                    "Total rendering time: {} seconds",
+                    start_time.elapsed().as_secs_f64()
+                );
                 closing.store(true, Ordering::Relaxed);
                 let write_thread = std::thread::Builder::new()
                     .name("write_thread".into())
@@ -286,10 +292,7 @@ fn render_thread(
     }
 }
 
-fn main() -> std::io::Result<()> {
-    env_logger::init();
-    let world: World = gen_scene(6, 6);
-
+fn cam1() -> Camera {
     let image_width = WIDTH as usize;
     let image_height = HEIGHT as usize;
     let samples_per_pixel = 32; // not relevant for window_preview
@@ -297,7 +300,7 @@ fn main() -> std::io::Result<()> {
     let defocus_angle = 1.0;
     let focus_distance = 10.0;
 
-    let camera = Camera::new(
+    Camera::new(
         Vec3::new(12.0, 2.0, 3.0),
         Vec3::new(0.0, 0.0, 0.0),
         Vec3::new(0.0, 1.0, 0.0),
@@ -309,7 +312,41 @@ fn main() -> std::io::Result<()> {
         max_depth,
         20.0,
         0.0..Float::MAX,
-    );
+    )
+}
+
+fn cam2() -> Camera {
+    let image_width = WIDTH as usize;
+    let image_height = HEIGHT as usize;
+    let samples_per_pixel = 32; // not relevant for window_preview
+    let max_depth = 100;
+    let defocus_angle = 0.7;
+    let focus_distance = 16.0;
+
+    let lookfrom = Vec3::new(14.0, 3.0, 10.0);
+    let lookat = Vec3::new(0.0, 0.0, 0.0);
+
+    Camera::new(
+        lookfrom,
+        lookat,
+        Vec3::new(0.0, 1.0, 0.0),
+        focus_distance,
+        defocus_angle,
+        image_width,
+        image_height,
+        samples_per_pixel,
+        max_depth,
+        20.0,
+        0.0..Float::MAX,
+    )
+}
+
+fn main() -> std::io::Result<()> {
+    env_logger::init();
+    let world = gen_scene(50, 50);
+    // let world = gen_checkered();
+    // let world = gen_earth()?;
+    let camera = cam2();
 
     if let Err(err) = window_preview(camera, world) {
         println!("Err: {}", err);
