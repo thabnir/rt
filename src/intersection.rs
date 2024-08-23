@@ -4,6 +4,7 @@ use crate::{
     vec3::{Point3, Ray, Vec3},
 };
 
+#[derive(Debug)]
 pub struct Intersection<'a> {
     pub point: Point3,
     pub normal: Vec3,

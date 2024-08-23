@@ -9,8 +9,9 @@ use bvh::{
     bounding_hierarchy::{BHShape, BoundingHierarchy},
     bvh::Bvh,
 };
+use enum_dispatch::enum_dispatch;
 use std::{
-    f32::consts::{PI, TAU},
+    f64::consts::{PI, TAU},
     ops::Range,
 };
 
@@ -27,22 +28,19 @@ impl World {
     }
 }
 
+#[enum_dispatch(Shape)]
 pub trait Hit: Send + Sync {
     fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection>;
 }
 
+#[enum_dispatch]
 pub enum Shape {
     Sphere(Sphere),
 }
 
-impl Hit for Shape {
-    fn hit(&self, ray: &Ray, range: &Range<Float>) -> Option<Intersection> {
-        match self {
-            Shape::Sphere(s) => s.hit(ray, range),
-        }
-    }
-}
-
+// no fucking way this guy is literally me https://old.reddit.com/r/rust/comments/tgwpo7/avoiding_bad_patterns/
+// he's even building a ray tracer + doing this because he heard it was faster
+// TODO: kill the man who made the enum_dispatch library without support for supertraits
 impl Bounded<Float, 3> for Shape {
     fn aabb(&self) -> Aabb<Float, 3> {
         match self {
@@ -50,6 +48,7 @@ impl Bounded<Float, 3> for Shape {
         }
     }
 }
+
 impl BHShape<Float, 3> for Shape {
     fn set_bh_node_index(&mut self, index: usize) {
         match self {
@@ -82,15 +81,40 @@ impl Hit for World {
 
 pub struct Sphere {
     center: Point3,
-    move_vec: Option<Vec3>,
     radius: Float,
+    /// To determine the rotation of the sphere (for textures)
+    front_direction: Vec3,
     pub material: Material,
     /// For use in the BVH
     node_index: usize,
 }
 
-impl Bounded<f32, 3> for Sphere {
-    fn aabb(&self) -> Aabb<f32, 3> {
+impl Sphere {
+    /// Returns a new sphere facing in the direction `(1, 0, 0)`
+    pub fn new(center: Vec3, radius: Float, material: Material) -> Self {
+        Sphere {
+            center,
+            radius: radius.max(0.0),
+            material,
+            node_index: 0,
+            front_direction: Vec3::x_axis().into_inner(),
+        }
+    }
+
+    /// Returns a new sphere with its texture pointing in the direction of `front_face`
+    pub fn new_facing(center: Vec3, radius: Float, material: Material, front_face: Vec3) -> Self {
+        Sphere {
+            center,
+            radius: radius.max(0.0),
+            material,
+            node_index: 0,
+            front_direction: front_face,
+        }
+    }
+}
+
+impl Bounded<Float, 3> for Sphere {
+    fn aabb(&self) -> Aabb<Float, 3> {
         let half_size = Vec3::new(self.radius, self.radius, self.radius);
         let min = self.center - half_size;
         let max = self.center + half_size;
@@ -98,7 +122,7 @@ impl Bounded<f32, 3> for Sphere {
     }
 }
 
-impl BHShape<f32, 3> for Sphere {
+impl BHShape<Float, 3> for Sphere {
     fn set_bh_node_index(&mut self, index: usize) {
         self.node_index = index;
     }
@@ -106,53 +130,6 @@ impl BHShape<f32, 3> for Sphere {
     fn bh_node_index(&self) -> usize {
         self.node_index
     }
-}
-
-impl Sphere {
-    pub fn new(center: Vec3, radius: Float, material: Material) -> Self {
-        Sphere {
-            center,
-            move_vec: None, // Stationary by default
-            radius: radius.max(0.0),
-            material,
-            node_index: 0,
-        }
-    }
-
-    pub fn center(&self, time: Float) -> Vec3 {
-        if let Some(move_vec) = self.move_vec {
-            self.center + move_vec * time // Lerp from starting to ending position
-        } else {
-            self.center
-        }
-    }
-}
-
-/// Returns the `(u, v)` coordinates of an `intersection_point` on the unit sphere centered at the
-/// origin
-/// ex:
-///
-/// ```rust
-/// # use rt::vec3::Vec3;
-/// # use rt::hittable::get_unit_sphere_uv;
-/// # use approx::abs_diff_eq;
-/// let (u1, v1) = get_unit_sphere_uv(Vec3::new(1.0, 0.0, 0.0));
-/// let (u2, v2) = get_unit_sphere_uv(Vec3::new(0.0, 1.0, 0.0));
-/// let (u3, v3) = get_unit_sphere_uv(Vec3::new(0.0, 0.0, 1.0));
-///
-/// abs_diff_eq!(u1, 0.5);
-/// abs_diff_eq!(v1, 0.5);
-/// abs_diff_eq!(u2, 0.5);
-/// abs_diff_eq!(v2, 1.0);
-/// abs_diff_eq!(u3, 0.25);
-/// abs_diff_eq!(v3, 0.5);
-/// ```
-pub fn get_unit_sphere_uv(intersection_point: Point3) -> (Float, Float) {
-    let theta = (-intersection_point.y).acos();
-    let phi = Float::atan2(-intersection_point.z, intersection_point.x) + PI;
-    let u = phi / TAU;
-    let v = theta / PI;
-    (u, v)
 }
 
 impl Hit for Sphere {
@@ -184,7 +161,7 @@ impl Hit for Sphere {
             normal = -normal; // Set the normal to always face outward
         }
 
-        let (u, v) = get_unit_sphere_uv(normal);
+        let (u, v) = unit_sphere_uv_facing(normal, self.front_direction);
 
         Some(Intersection::new(
             point_on_sphere,
@@ -196,4 +173,45 @@ impl Hit for Sphere {
             v,
         ))
     }
+}
+
+/// Returns the `(u, v)` coordinates of an `intersection_point` on the unit sphere centered at the
+/// origin with the texture pitched, yawed, and rotated.
+/// Uses **radians**
+pub fn unit_sphere_uv(
+    intersection_point: Point3,
+    pitch_rads: Float,
+    yaw_rads: Float,
+    rotation_rads: Float,
+) -> (Float, Float) {
+    let rotation_matrix = nalgebra::Rotation3::from_euler_angles(0.0, pitch_rads, 0.0)
+        * nalgebra::Rotation3::from_euler_angles(0.0, 0.0, -yaw_rads);
+
+    let rotated_point = rotation_matrix * intersection_point;
+    let (theta, phi) = to_unit_spherical(rotated_point);
+
+    let phi = (phi + rotation_rads).rem_euclid(TAU); // Rotates the texture around its pole
+
+    let u = phi / TAU;
+    let v = theta / PI;
+
+    (u, v)
+}
+
+/// Returns the `(u, v)` coordinates of an `intersection_point` on the unit sphere centered at the
+/// origin with the texture facing toward `face_dir`
+fn unit_sphere_uv_facing(intersection_point: Point3, face_dir: Vec3) -> (Float, Float) {
+    let pitch = face_dir
+        .z
+        .atan2((face_dir.y * face_dir.y + face_dir.x * face_dir.x).sqrt());
+    let yaw = face_dir.y.atan2(face_dir.x);
+
+    let rotation = 0.0;
+    unit_sphere_uv(intersection_point, pitch, yaw, rotation)
+}
+
+fn to_unit_spherical(point: Point3) -> (Float, Float) {
+    let theta = (-point.z).acos();
+    let phi = Float::atan2(point.y, point.x) + PI;
+    (theta, phi)
 }

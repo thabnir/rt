@@ -1,29 +1,21 @@
-use std::sync::Arc;
-
 use crate::{
     camera::Float,
     vec3::{Point3, Vec3},
 };
+use enum_dispatch::enum_dispatch;
 use image::{load_from_memory, RgbImage};
 
+#[enum_dispatch(TextureEnum)]
 pub trait Texture {
     fn value(&self, u: Float, v: Float, point: Point3) -> Vec3;
 }
 
+#[enum_dispatch]
+#[derive(Debug)]
 pub enum TextureEnum {
-    SolidColor(SolidColor),
-    CheckerTexture(CheckerTexture),
-    ImageTexture(ImageTexture),
-}
-
-impl Texture for TextureEnum {
-    fn value(&self, u: Float, v: Float, point: Point3) -> Vec3 {
-        match self {
-            TextureEnum::SolidColor(t) => t.value(u, v, point),
-            TextureEnum::CheckerTexture(t) => t.value(u, v, point),
-            TextureEnum::ImageTexture(t) => t.value(u, v, point),
-        }
-    }
+    SolidColor,
+    CheckerTexture,
+    ImageTexture,
 }
 
 #[derive(Debug, Clone)]
@@ -49,23 +41,20 @@ impl SolidColor {
     }
 }
 
+#[derive(Debug)]
 pub struct CheckerTexture {
     /// Larger scale values correspond to larger checker sizes
     scale_inverted: Float,
-    even_texture: Arc<TextureEnum>, // Boxed to avoid infinite size with recursion
-    odd_texture: Arc<TextureEnum>,
+    even_texture: Box<TextureEnum>, // Boxed to avoid infinite size with recursion
+    odd_texture: Box<TextureEnum>,
 }
 
 impl CheckerTexture {
-    pub fn new(
-        scale: Float,
-        even_texture: Arc<TextureEnum>,
-        odd_texture: Arc<TextureEnum>,
-    ) -> Self {
+    pub fn new(scale: Float, even_texture: TextureEnum, odd_texture: TextureEnum) -> Self {
         CheckerTexture {
             scale_inverted: 1.0 / scale,
-            even_texture,
-            odd_texture,
+            even_texture: Box::new(even_texture),
+            odd_texture: Box::new(odd_texture),
         }
     }
 }
@@ -85,8 +74,10 @@ impl Texture for CheckerTexture {
     }
 }
 
+// TODO: (low priority) fix the debug print impl, it currently prints out EVERY pixel value in the image
+#[derive(Debug)]
 pub struct ImageTexture {
-    pub image: Arc<RgbImage>,
+    pub image: RgbImage,
 }
 
 impl ImageTexture {
@@ -97,24 +88,8 @@ impl ImageTexture {
     }
 
     pub fn new(image: RgbImage) -> Self {
-        ImageTexture {
-            image: Arc::new(image),
-        }
+        ImageTexture { image }
     }
-    // pub fn new_from_embedded_texture(data: &[u8]) -> Self {
-    //     let img = load_from_memory(data)
-    //         .expect("Failed to load image")
-    //         .to_rgb8();
-    //     ImageTexture { image: img }
-    // }
-    //
-    // pub fn new_from_path(filepath: &str) -> Self {
-    //     // TODO: figure out how to lay the textures out so this works
-    //     let img = image::open(filepath)
-    //         .unwrap_or_else(|_| panic!("Failed to load image from path `{}`", filepath))
-    //         .to_rgb8();
-    //     ImageTexture { image: img }
-    // }
 }
 
 impl Texture for ImageTexture {
@@ -122,6 +97,7 @@ impl Texture for ImageTexture {
         let r = 0.0..1.0;
         if self.image.height() == 0 || self.image.width() == 0 || !r.contains(&u) || !r.contains(&v)
         {
+            println!("Error: (u, v)={} {} out of bounds", u, v);
             return Vec3::new(1.0, 0.0, 0.0); // Debug color
         }
 
