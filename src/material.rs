@@ -1,72 +1,121 @@
 use crate::{
     camera::Float,
-    ray::{HitRecord, Ray},
-    vec3_ext::Vec3Ext,
+    intersection::Intersection,
+    texture::{SolidColor, Texture, TextureEnum},
+    vec3::{Ray, Vec3, Vec3Ext},
 };
-use glam::Vec3;
+use enum_dispatch::enum_dispatch;
 use rand::{thread_rng, Rng};
 
+#[enum_dispatch]
+#[derive(Debug)]
+pub enum Material {
+    Lambertian,
+    Metal,
+    Dielectric,
+}
+// TODO: change out uses of Vec3 for a Color type where applicable. Make said Color type.
+// Make invalid states unrepresentable and whatnot.
+
+#[enum_dispatch(Material)]
 pub trait Scatter: Send + Sync {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)>;
+    fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)>;
 }
 
 fn reflect(incoming_direction: Vec3, surface_normal: Vec3) -> Vec3 {
     // Scale normal by length of incoming ray's direction projected onto the normal
-    // Then reflect the ray by subtracting twice the inverse of its height relative to the surface
-    let scaled_normal = surface_normal * incoming_direction.dot(surface_normal);
+    // Then reflect the ray by subtracting twice its height relative to the surface
+    let scaled_normal = surface_normal * incoming_direction.dot(&surface_normal);
     incoming_direction - scaled_normal * 2.0
 }
 
 /// Expects `incoming_direction` to be a unit vector
 fn refract(incoming_direction: Vec3, surface_normal: Vec3, refractive_ratio: Float) -> Vec3 {
-    let cos_theta = (-incoming_direction.dot(surface_normal)).min(1.0);
+    let cos_theta = (-incoming_direction.dot(&surface_normal)).min(1.0);
     let r_out_perp = (incoming_direction + surface_normal * cos_theta) * refractive_ratio;
-    let x = -((1.0 - r_out_perp.length_squared()).abs().sqrt());
+    let x = -((1.0 - r_out_perp.norm_squared()).abs().sqrt());
     let r_out_parallel = surface_normal * x;
     r_out_parallel + r_out_perp
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug)]
 pub struct Lambertian {
-    pub albedo: Vec3,
+    pub texture: TextureEnum,
 }
 
-#[derive(Clone, Copy)]
+impl Lambertian {
+    pub fn new(texture: TextureEnum) -> Self {
+        Lambertian { texture }
+    }
+
+    pub fn new_rgb_solid(r: Float, g: Float, b: Float) -> Self {
+        let texture = SolidColor::new_rgb(r, g, b);
+        Lambertian::new(texture.into())
+    }
+}
+
+#[derive(Debug)]
 pub struct Metal {
-    pub albedo: Vec3,
-    pub fuzz: Float,
+    pub texture: TextureEnum,
+    pub fuzz: Option<Float>,
+}
+
+impl Metal {
+    pub fn new_solid(color: Vec3, fuzz: Option<Float>) -> Self {
+        let solid_texture = SolidColor::new(color).into();
+        Metal::new(solid_texture, fuzz)
+    }
+    pub fn new(texture: TextureEnum, fuzz: Option<Float>) -> Self {
+        Metal { texture, fuzz }
+    }
 }
 
 impl Scatter for Metal {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
-        let reflected = reflect(ray_in.direction, record.normal)
-            + Vec3::random_unit(&mut thread_rng()) * self.fuzz;
-        let scattered = Ray::new(record.point, reflected);
-        Some((self.albedo, scattered))
+    fn scatter(&self, ray_in: &Ray, intersection: &Intersection) -> Option<(Vec3, Ray)> {
+        let reflected_dir = if let Some(fuzz) = self.fuzz {
+            reflect(ray_in.direction, intersection.normal)
+                + Vec3::random_unit(&mut thread_rng()) * fuzz
+        } else {
+            reflect(ray_in.direction, intersection.normal)
+        };
+        let scattered = Ray::new(intersection.point.into(), reflected_dir);
+        let attenuation = self
+            .texture
+            .value(intersection.u, intersection.v, intersection.point);
+        Some((attenuation, scattered))
     }
 }
 
 impl Scatter for Lambertian {
-    fn scatter(&self, _ray_in: &Ray, hit: &HitRecord) -> Option<(Vec3, Ray)> {
+    fn scatter(&self, _ray_in: &Ray, hit: &Intersection) -> Option<(Vec3, Ray)> {
         let mut scatter_dir = hit.normal + Vec3::random_unit(&mut thread_rng());
         if scatter_dir.near_zero() {
             scatter_dir = hit.normal;
         }
-        let scattered = Ray::new(hit.point, scatter_dir);
-        Some((self.albedo, scattered))
+        let scattered = Ray::new(hit.point.into(), scatter_dir);
+        let attenuation = self.texture.value(hit.u, hit.v, hit.point);
+        Some((attenuation, scattered))
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Dielectric {
-    /// Refractive index in vacuum or air, or the ratio of the material's
-    /// refractive index over the refractive index of the enclosing media
+    /// Refractive index in vacuum or air, or the ratio of the material's RI over the RI of the enclosing medium
     pub refractive_index: Float,
-    // albedo: Scalar, // TBD if this is needed (how to implement colored transparents?)
+}
+
+impl Dielectric {
+    pub fn new(refractive_index: Float) -> Self {
+        Dielectric { refractive_index }
+    }
+
+    pub fn new_inside_other(material_index: Float, container_index: Float) -> Self {
+        Dielectric::new(material_index / container_index)
+    }
 }
 
 impl Scatter for Dielectric {
-    fn scatter(&self, ray_in: &Ray, record: &HitRecord) -> Option<(Vec3, Ray)> {
+    fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)> {
         let ri = if record.is_front_face {
             1.0 / self.refractive_index
         } else {
@@ -75,7 +124,7 @@ impl Scatter for Dielectric {
 
         let incoming_direction = ray_in.direction.normalize();
 
-        let cos_theta = (-incoming_direction.dot(record.normal)).min(1.0);
+        let cos_theta = (-incoming_direction.dot(&record.normal)).min(1.0);
         let sin_theta = (1.0 - cos_theta * cos_theta).sqrt(); // sin^2(x) + cos^2(x) = 1
         let cannot_refract = ri * sin_theta > 1.0;
 
@@ -86,7 +135,7 @@ impl Scatter for Dielectric {
         } else {
             refract(incoming_direction, record.normal, ri)
         };
-        Some((Vec3::ONE, Ray::new(record.point, direction)))
+        Some((Vec3::ONE, Ray::new(record.point.into(), direction)))
     }
 }
 

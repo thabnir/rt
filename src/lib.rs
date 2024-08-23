@@ -1,5 +1,8 @@
 pub mod camera;
 pub mod hittable;
+pub mod intersection;
 pub mod material;
-pub mod ray;
-pub mod vec3_ext;
+pub mod scenes;
+pub mod texture;
+pub mod vec3;
+pub mod window;
