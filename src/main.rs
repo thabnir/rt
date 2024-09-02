@@ -9,8 +9,10 @@ pub mod window;
 
 fn main() {
     env_logger::init();
-    let camera = scenes::cam2();
-    let world = scenes::cover_scene(60, 60, &camera);
+    std::env::set_var("RUST_BACKTRACE", "1");
+    let camera = scenes::widecam();
+    // let world = scenes::cover_scene(60, 60, &camera);
+    let world = scenes::mesh_scene();
 
     if let Err(err) = window::render_with_preview(camera, world) {
         println!("Err: {}", err);

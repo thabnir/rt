@@ -16,6 +16,7 @@ nalgebra = "0.33.0"
 approx = "0.5.1"
 image = "0.25.2"
 enum_dispatch = "0.3.13"
+hw-skymodel = "0.1.1"
 
 [target.'cfg(target_arch = "x86_64")'.dependencies]
 bvh = { version = "0.10.0", features = ["simd"] }

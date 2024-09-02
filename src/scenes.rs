@@ -1,27 +1,33 @@
+#![allow(unused)]
 use crate::{
     camera::{Camera, Float},
-    hittable::{Sphere, World},
-    material::{Dielectric, Lambertian, Metal},
+    hittable::{self, Sphere, Triangle, World},
+    material::{Dielectric, Lambertian, Material, Metal},
     texture::{CheckerTexture, ImageTexture, SolidColor},
     vec3::{Vec3, Vec3Ext},
     window::{HEIGHT, WIDTH},
 };
 use image::RgbImage;
+use nalgebra::{Matrix4, Rotation3};
 use rand::{thread_rng, Rng};
-use std::io;
+use std::{io, sync::Arc};
 
 pub fn cam1() -> Camera {
     let image_width = WIDTH as usize;
     let image_height = HEIGHT as usize;
     let samples_per_pixel = 32; // not relevant for window_preview
     let max_depth = 100;
-    let defocus_angle = 1.0;
-    let focus_distance = 10.0;
+    let defocus_angle = 0.0;
+
+    let center = Vec3::new(4.5, -0.25, 3.0);
+    let lookat = Vec3::new(0.0, -0.25, 1.0);
+    // let focus_distance = 10.0;
+    let focus_distance = center.metric_distance(&lookat);
 
     Camera::new(
-        Vec3::new(12.0, 2.0, 3.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 1.0),
+        center,
+        lookat,
+        Vec3::z_axis().into_inner(),
         focus_distance,
         defocus_angle,
         image_width,
@@ -55,6 +61,33 @@ pub fn cam2() -> Camera {
         samples_per_pixel,
         max_depth,
         20.0,
+        0.0..Float::MAX,
+    )
+}
+
+pub fn widecam() -> Camera {
+    let image_width = WIDTH as usize;
+    let image_height = HEIGHT as usize;
+    let samples_per_pixel = 32; // not relevant for window_preview
+    let max_depth = 100;
+    let defocus_angle = 0.0;
+
+    let center = Vec3::new(7.0, 7.0, 5.0);
+    let lookat = Vec3::new(0.0, 0.0, 1.0);
+    // let focus_distance = 10.0;
+    let focus_distance = center.metric_distance(&lookat);
+
+    Camera::new(
+        center,
+        lookat,
+        Vec3::z_axis().into_inner(),
+        focus_distance,
+        defocus_angle,
+        image_width,
+        image_height,
+        samples_per_pixel,
+        max_depth,
+        60.0,
         0.0..Float::MAX,
     )
 }
@@ -94,7 +127,7 @@ pub fn earth_scene() -> io::Result<World> {
     let earth_bytes: &[u8] = include_bytes!("./assets/textures/earth.png");
     let earth_image: RgbImage = ImageTexture::load_embedded_image(earth_bytes);
     let earth_tex = ImageTexture::new(earth_image).into();
-    let earth_mat = Lambertian::new(earth_tex).into();
+    let earth_mat = Arc::new(Lambertian::new(earth_tex).into());
     let earth_ball = Sphere::new(Vec3::new(0.0, 0.0, 0.0), 2.0, earth_mat).into();
 
     shapes.push(earth_ball);
@@ -130,14 +163,14 @@ pub fn cover_scene(grid_i: i16, grid_j: i16, camera: &Camera) -> World {
     let even_texture = SolidColor::new(Vec3::new(0.0, 0.0, 0.0)).into();
     let odd_texture = SolidColor::new(Vec3::new(0.95, 0.95, 0.95)).into();
     let checker_tex = CheckerTexture::new(0.31, even_texture, odd_texture).into();
-    let checker_mat = Lambertian::new(checker_tex).into();
 
-    let mars_mat = Lambertian::new(mars_tex).into();
-    let earth_mat = Lambertian::new(earth_tex).into();
-    let moon_mat = Lambertian::new(moon_tex).into();
-    let saul_mat = Lambertian::new(saul_tex).into();
-    let mat1 = Dielectric::new(1.5).into();
-    let mat3 = Metal::new_solid(Vec3::new(0.7, 0.6, 0.5), None).into();
+    let checker_mat = Arc::new(Lambertian::new(checker_tex).into());
+    let mars_mat = Arc::new(Lambertian::new(mars_tex).into());
+    let earth_mat = Arc::new(Lambertian::new(earth_tex).into());
+    let moon_mat = Arc::new(Lambertian::new(moon_tex).into());
+    let saul_mat = Arc::new(Lambertian::new(saul_tex).into());
+    let mat1 = Arc::new(Dielectric::new(1.5).into());
+    let mat3 = Arc::new(Metal::new_solid(Vec3::new(0.7, 0.6, 0.5), None).into());
 
     let ground = Vec3::new(0.0, 0.0, -1000.0);
     let big_6_radius = 0.7;
@@ -182,7 +215,7 @@ pub fn cover_scene(grid_i: i16, grid_j: i16, camera: &Camera) -> World {
             }
             let choose = rng.gen_range(0.0..1.0);
             let sphere = {
-                let mat = {
+                let mat = Arc::new({
                     if choose > (0.95) {
                         Dielectric::new(1.5).into()
                     } else if choose > 0.8 {
@@ -192,7 +225,7 @@ pub fn cover_scene(grid_i: i16, grid_j: i16, camera: &Camera) -> World {
                         let texture = SolidColor::new(albedo).into();
                         Lambertian::new(texture).into()
                     }
-                };
+                });
                 Sphere::new(center, radius, mat).into()
             };
 
@@ -210,16 +243,138 @@ pub fn gen_checkered() -> World {
 
     let checker_tex = CheckerTexture::new(0.31, even_texture, odd_texture).into();
 
-    let mat1 = Lambertian::new(checker_tex).into();
+    let mat: Arc<Material> = Arc::new(Lambertian::new(checker_tex).into());
+
+    // let even_texture = SolidColor::new(Vec3::new(0.2, 0.3, 0.1)).into();
+    // let odd_texture = SolidColor::new(Vec3::new(0.9, 0.9, 0.9)).into();
+    // let checker_tex = CheckerTexture::new(0.31, even_texture, odd_texture).into();
+    // let mat2 = Arc::new(Lambertian::new(checker_tex).into());
+
+    let sphere_lower = Sphere::new(Vec3::new(0.0, -10.0, 0.0), 10.0, mat.clone()).into();
+    let sphere_upper = Sphere::new(Vec3::new(0.0, 10.0, 0.0), 10.0, mat).into();
+    shapes.push(sphere_lower);
+    shapes.push(sphere_upper);
+    World::build(shapes)
+}
+
+pub fn gen_triangle_world() -> World {
+    let mut shapes = Vec::new();
+
+    let even_texture = SolidColor::new(Vec3::new(1.0, 0.0, 0.0)).into();
+    let odd_texture = SolidColor::new(Vec3::new(0.0, 0.0, 1.0)).into();
+
+    let checker_tex = CheckerTexture::new(0.31, even_texture, odd_texture).into();
+
+    let mat1 = Arc::new(Lambertian::new(checker_tex).into());
 
     let even_texture = SolidColor::new(Vec3::new(0.2, 0.3, 0.1)).into();
     let odd_texture = SolidColor::new(Vec3::new(0.9, 0.9, 0.9)).into();
     let checker_tex = CheckerTexture::new(0.31, even_texture, odd_texture).into();
-    let mat2 = Lambertian::new(checker_tex).into();
+    let mat2 = Arc::new(Lambertian::new(checker_tex).into());
 
-    let sphere_lower = Sphere::new(Vec3::new(0.0, -10.0, 0.0), 10.0, mat1).into();
-    let sphere_upper = Sphere::new(Vec3::new(0.0, 10.0, 0.0), 10.0, mat2).into();
-    shapes.push(sphere_lower);
-    shapes.push(sphere_upper);
+    let a = Vec3::new(0.0, 0.0, 0.0);
+    let b = Vec3::new(1.0, 0.0, 0.0);
+    let c = Vec3::new(0.0, 1.0, 0.0);
+    let tri1 = Triangle::new(a, b, c, mat1).into();
+
+    let a = Vec3::new(1.0, 0.0, 0.0);
+    let b = Vec3::new(0.0, 0.0, 0.0);
+    let c = Vec3::new(0.0, 0.0, 1.0);
+    let tri2 = Triangle::new(a, b, c, mat2).into();
+
+    let earth_bytes: &[u8] = include_bytes!("./assets/textures/earth.png");
+    let earth_image: RgbImage = ImageTexture::load_embedded_image(earth_bytes);
+    let earth_tex = ImageTexture::new(earth_image).into();
+    let earth_mat = Arc::new(Lambertian::new(earth_tex).into());
+    let earth_ball = Sphere::new(Vec3::new(0.4, 0.4, 0.4), 0.3, earth_mat).into();
+
+    let saul_bytes = include_bytes!("./assets/textures/saul.webp");
+    let saul_image = ImageTexture::load_embedded_image(saul_bytes);
+    let saul_tex = ImageTexture::new(saul_image).into();
+    let saul_mat = Arc::new(Lambertian::new(saul_tex).into());
+
+    let a = Vec3::new(0.0, 0.0, 0.0);
+    let b = Vec3::new(0.0, 1.0, 0.0);
+    let c = Vec3::new(0.0, 0.0, 1.0);
+    let saul_tri = Triangle::new(a, b, c, saul_mat).into();
+
+    shapes.push(tri1);
+    shapes.push(tri2);
+    shapes.push(earth_ball);
+    shapes.push(saul_tri);
     World::build(shapes)
+}
+
+pub fn mesh_scene() -> World {
+    let mut shapes = Vec::new();
+
+    let bunny = "/Users/thabnir/code/rt/src/assets/meshes/stanford-bunny.obj";
+    let bimba = "/Users/thabnir/code/rt/src/assets/meshes/bimba.obj";
+    let teapot = "/Users/thabnir/code/rt/src/assets/meshes/teapot.obj";
+    let egypt = "/Users/thabnir/code/rt/src/assets/meshes/Nefertiti.obj";
+    let dillo = "/Users/thabnir/code/rt/src/assets/meshes/armadillo.obj";
+
+    let even_texture = SolidColor::new(Vec3::new(0.0, 0.0, 0.0)).into();
+    let odd_texture = SolidColor::new(Vec3::new(0.95, 0.95, 0.95)).into();
+    let checker_tex = CheckerTexture::new(0.31, even_texture, odd_texture).into();
+    let checker_mat: Arc<Material> = Arc::new(Lambertian::new(checker_tex).into());
+
+    let ground_loc = Vec3::new(0.0, 0.0, -900.0);
+    let glass: Arc<Material> = Arc::new(Dielectric::new(1.5).into());
+    let plaster: Arc<Material> = Arc::new(Lambertian::new_rgb_solid(0.95, 0.70, 0.85).into());
+    let wacky: Arc<Material> = Arc::new(Metal::new_solid(Vec3::new(0.7, 0.95, 0.75), None).into());
+    let red_metal: Arc<Material> =
+        Arc::new(Metal::new_solid(Vec3::new(1.0, 0.5, 0.5), Some(0.2)).into());
+    let dull_gray_metal: Arc<Material> =
+        Arc::new(Metal::new_solid(Vec3::new(0.8, 0.8, 0.8), Some(0.4)).into());
+    let mirror: Arc<Material> =
+        Arc::new(Metal::new_solid(Vec3::new(0.95, 0.95, 0.95), None).into());
+
+    let ground = Sphere::new(
+        ground_loc - Vec3::new(0.0, 0.0, 2.5),
+        ground_loc.z.abs(),
+        dull_gray_metal.clone(),
+    );
+
+    shapes.push(ground.into());
+
+    let upright_big = scale_rotate_mat(0.0, 90.0, 90.0, 12.0);
+    let smaller = scale_rotate_mat(0.0, -90.0, -90.0, 0.6);
+
+    let headass = scale_rotate_mat(90.0, 0.0, 0.0, 0.02);
+
+    let meshes = vec![
+        hittable::load_obj(bimba, red_metal.clone(), Some(upright_big), false),
+        // hittable::load_obj(bunny, red_metal.clone(), Some(upright_big), false),
+        // hittable::load_obj(teapot, dull_gray_metal.clone(), Some(smaller), false),
+        hittable::load_obj(egypt, red_metal.clone(), Some(headass), false),
+        // hittable::load_obj(dillo, dull_gray_metal.clone(), None, false),
+    ];
+
+    for mesh in meshes {
+        for m in mesh {
+            for tri in m {
+                shapes.push(tri.into());
+            }
+        }
+    }
+
+    World::build(shapes)
+}
+
+pub fn scale_rotate_mat(
+    roll_degrees: Float,
+    pitch_degrees: Float,
+    yaw_degrees: Float,
+    scalefactor: Float,
+) -> Matrix4<Float> {
+    let pitch_rads = pitch_degrees.to_radians();
+    let yaw_rads = yaw_degrees.to_radians();
+    let roll_rads = roll_degrees.to_radians();
+
+    let rotation = Rotation3::from_euler_angles(0.0, pitch_rads, 0.0)
+        * Rotation3::from_euler_angles(0.0, 0.0, yaw_rads)
+        * Rotation3::from_euler_angles(0.0, 0.0, roll_rads);
+
+    rotation.to_homogeneous() * scalefactor
 }

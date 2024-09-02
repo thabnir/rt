@@ -74,10 +74,16 @@ impl Texture for CheckerTexture {
     }
 }
 
-// TODO: (low priority) fix the debug print impl, it currently prints out EVERY pixel value in the image
-#[derive(Debug)]
 pub struct ImageTexture {
     pub image: RgbImage,
+}
+
+impl std::fmt::Debug for ImageTexture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImageTexture")
+            .field("image", &"<image data>")
+            .finish()
+    }
 }
 
 impl ImageTexture {
@@ -94,10 +100,10 @@ impl ImageTexture {
 
 impl Texture for ImageTexture {
     fn value(&self, u: Float, v: Float, _point: Point3) -> Vec3 {
-        let r = 0.0..1.0;
+        let r = 0.0..=1.0;
         if self.image.height() == 0 || self.image.width() == 0 || !r.contains(&u) || !r.contains(&v)
         {
-            println!("Error: (u, v)={} {} out of bounds", u, v);
+            println!("Error: (u, v)=({}, {}) out of bounds", u, v);
             return Vec3::new(1.0, 0.0, 0.0); // Debug color
         }
 

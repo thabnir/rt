@@ -10,6 +10,7 @@ Read more and learn more
 
 ### Related repos
 
+[Toy Ray Tracer in Rust](https://github.com/Twinklebear/tray_rust/blob/master/src/film/filter/mitchell_netravali.rs)
 [Ray Tracing in Vulkan](https://github.com/GPSnoopy/RayTracingInVulkan)
 [Ray Tracing in WebGPU](https://github.com/Nelarius/weekend-raytracer-wgpu?tab=readme-ov-file)
 
