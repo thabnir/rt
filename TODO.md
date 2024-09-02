@@ -25,8 +25,9 @@ If I ever implement GPU support:
 ## Bugs
 
 - I don't think my Halton sampling actually works right
-- Weird floating point shadow acne type errors near the top of very large spheres when using f32 instead of f64 (damn you, floating point numbers)
+- Weird floating point shadow acne type errors near the top of very large spheres when using f32 instead of f64 (damn you, floating point numbers) (visually patterned when using Halton sampling instead of `thread_rng()` as the source of randomness for ray sampling)
 - Can't make the camera look straight down or up or the entire thing totally crashes and explodes
+- Meshes are sometimes sort of transparent in a weird way when they absolutely should NOT be. Happens with metals for sure, likely other materials too.
 
 ## Rendering Features
 
@@ -34,8 +35,8 @@ If I ever implement GPU support:
 
   - [x] Spheres
   - [ ] Quads
-  - [ ] Triangles
-    - [ ] Meshes / model importing
+  - [x] Triangles
+    - [x] Meshes / model importing
   - [ ] Cubes
 
 - [ ] Materials & Textures
@@ -49,6 +50,7 @@ If I ever implement GPU support:
   - [ ] Normal maps
   - [ ] Bump maps
   - [ ] [Better sky model](https://nelari.us/post/weekend_raytracing_with_wgpu_2/)
+  - [ ] Mesh texturing system
 
 - [ ] Improved light rendering
 
@@ -105,7 +107,7 @@ If I ever implement GPU support:
 
   - [ ] Actually benchmark and tweak settings. Maybe use tiling?
 
-- [ ] Bounding Volume Hierarchy
+- [x] Bounding Volume Hierarchy
 
 - [ ] SIMD for rays and pixels.
 
@@ -124,10 +126,6 @@ If I ever implement GPU support:
 - [ ] GPU support. **Big** project. Total rewrite. Maybe better suited to a sequel project
 
 ## Development features and chores
-
-- [ ] _MAYBE_ make materials and shapes use dynamic dispatch rather than the nested-enum hell they are now. Do performance benchmarks + see how it ends up actually looking and feeling to use.
-
-- [ ] Remove the code for the camera and scene settings from anywhere important
 
 - [ ] Refactor the render preview code to be more separate and generally less shit
 
