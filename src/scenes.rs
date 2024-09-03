@@ -257,7 +257,7 @@ pub fn gen_checkered() -> World {
     World::build(shapes)
 }
 
-pub fn gen_triangle_world() -> World {
+pub fn triangle_scene() -> World {
     let mut shapes = Vec::new();
 
     let even_texture = SolidColor::new(Vec3::new(1.0, 0.0, 0.0)).into();

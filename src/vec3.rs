@@ -3,11 +3,10 @@ use rand::distributions::{Distribution, Uniform};
 use rand::thread_rng;
 use rand::Rng;
 
-// pub type Vec3 = glam::Vec3;
 pub type Ray = bvh::ray::Ray<Float, 3>;
 pub type Vec3 = nalgebra::Vector3<Float>;
 // pub type Point3 = nalgebra::Point3<Float>;
-pub type Point3 = nalgebra::Vector3<Float>;
+pub type Point3 = nalgebra::Vector3<Float>; // TODO: make this use Point3 instead
 
 pub trait RayExt {
     fn at(&self, time: Float) -> Vec3;

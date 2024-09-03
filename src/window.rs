@@ -6,7 +6,6 @@ use crate::{
 use core::array;
 use indicatif::ParallelProgressIterator;
 use pixels::{Error, Pixels, SurfaceTexture};
-use rand::{prelude::SliceRandom, thread_rng};
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::{
     fs::File,
@@ -24,8 +23,8 @@ use winit::{
     window::WindowBuilder,
 };
 
-pub const WIDTH: u32 = 1400;
-pub const HEIGHT: u32 = 1000;
+pub const WIDTH: u32 = 800;
+pub const HEIGHT: u32 = 600;
 
 // TODO: figure out how to apply gamma correction to the preview in a performant way
 pub fn render_with_preview(camera: Camera, world: World) -> Result<(), Error> {
@@ -54,7 +53,6 @@ pub fn render_with_preview(camera: Camera, world: World) -> Result<(), Error> {
         .build(&event_loop)
         .unwrap();
 
-    // Texture dimensions have to be doubled to match window size for some reason (maybe DPI scaling?)
     let mut pixels = {
         let window_size = window.inner_size();
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
@@ -67,7 +65,7 @@ pub fn render_with_preview(camera: Camera, world: World) -> Result<(), Error> {
 
     window.set_visible(true);
 
-    // Raytracing thread
+    // Ray tracing thread
     std::thread::Builder::new()
         .name("rt_thread".into())
         .stack_size((WIDTH * HEIGHT * 4 * 3) as usize) // Avoid stack overflow at high res
@@ -149,21 +147,21 @@ pub fn render_with_preview(camera: Camera, world: World) -> Result<(), Error> {
                         let (x, y) = (logical_pos.x, logical_pos.y);
                         let dray = camera.debug_ray(x - 1.0, y - 1.0); // offset for 0-idx
 
-                        if let Some((hit, color, maybe_reflected_ray)) =
+                        if let Some((hit, _color, _maybe_reflected_ray)) =
                             camera.debug_raycast(&world, &dray)
                         {
-                            if let Some(ray) = maybe_reflected_ray {
-                                println!(
-                                    "Input ray at\n{:?}\nan object of color\n{:?}\nthen reflected to\n{:?}",
-                                    dray, color, ray
-                                );
-                            } else {
-                                println!(
-                                    "Input ray:\n{:?}\nhit object of color\n{:?}\nand was absorbed",
-                                    dray, dray
-                                );
-                            }
-                            println!("More hit info:\n{:?}", hit);
+                            // if let Some(ray) = maybe_reflected_ray {
+                            //     println!(
+                            //         "Input ray at\n{:?}\nan object of color\n{:?}\nthen reflected to\n{:?}",
+                            //         dray, color, ray
+                            //     );
+                            // } else {
+                            //     println!(
+                            //         "Input ray:\n{:?}\nhit object of color\n{:?}\nand was absorbed",
+                            //         dray, dray
+                            //     );
+                            // }
+                            println!("Hit info:\n{:?}", hit);
                         } else {
                             println!("Ray missed any objects (hit the skybox).");
                         }
@@ -227,12 +225,7 @@ fn render_thread(
     render_buffer: Arc<RwLock<[u8; (WIDTH * HEIGHT * 4) as usize]>>,
     closing: &AtomicBool,
 ) {
-    let mut render_pixels: [u32; (WIDTH * HEIGHT) as usize] = array::from_fn(|i| i as u32);
-
-    // Pixel render order shuffled so it doesn't render in lines.
-    // Looks nicer this way, quicker to make out the general look of the scene.
-    let mut rand = thread_rng();
-    render_pixels.shuffle(&mut rand);
+    let render_pixels: [u32; (WIDTH * HEIGHT) as usize] = array::from_fn(|i| i as u32);
 
     // Does a sweep with a single ray per pixel for a fast preview, then accumulates detail
     let num_samples_at_pass: Vec<usize> = vec![

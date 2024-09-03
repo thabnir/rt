@@ -2,7 +2,7 @@ use crate::{
     camera::Float,
     intersection::Intersection,
     material::Material,
-    vec3::{Point3, Ray, RayExt, Vec3},
+    vec3::{Point3, Ray, RayExt, Vec3, Vec3Ext},
 };
 use bvh::{
     aabb::{Aabb, Bounded},
@@ -10,6 +10,7 @@ use bvh::{
     bvh::Bvh,
 };
 use enum_dispatch::enum_dispatch;
+use hw_skymodel::rgb::{Channel, SkyParams, SkyState};
 use nalgebra::Matrix4;
 use rayon::{iter::ParallelIterator, slice::ParallelSlice};
 use std::{
@@ -19,16 +20,74 @@ use std::{
 };
 use tobj::GPU_LOAD_OPTIONS;
 
+// TODO: make shapes and bvh private and turn their usage into an iterator
 pub struct World {
     pub shapes: Vec<Shape>,
     pub bvh: Bvh<Float, 3>,
+    sky: SkyState,
+    sun_direction: Vec3,
 }
 
 impl World {
     /// Constructs a new `World` and builds its `BVH` in parallel
     pub fn build(mut shapes: Vec<Shape>) -> Self {
         let bvh = Bvh::build_par(&mut shapes);
-        World { shapes, bvh }
+        let sky = SkyState::new(&SkyParams::default()).expect("error constructing sky model");
+
+        // TODO: test best default sun direction, maybe add parameter in `build`
+        let sun_direction = Vec3::new(0.0, 0.0, 1.0).normalize();
+
+        World {
+            shapes,
+            bvh,
+            sky,
+            sun_direction,
+        }
+    }
+
+    // Taken from this blog post: https://nelari.us/post/weekend_raytracing_with_wgpu_2/
+    fn uncharted2_tonemap(x: Vec3) -> Vec3 {
+        let a = 0.15;
+        let b = 0.50;
+        let c = 0.10;
+        let d = 0.20;
+        let e = 0.02;
+        let f = 0.30;
+        // let w = 11.2;
+
+        let numerator = x.component_mul(&(a * x + Vec3::new(c * b, c * b, c * b)))
+            + Vec3::new(d * e, d * e, d * e);
+        let denominator =
+            x.component_mul(&(a * x + Vec3::new(b, b, b))) + Vec3::new(d * f, d * f, d * f);
+
+        numerator.component_div(&denominator) - Vec3::new(e / f, e / f, e / f)
+    }
+
+    /// Takes an `unclamped_color` and returns a color with values in the range [0.0, 1.0]
+    /// [Taken from this blog post](https://nelari.us/post/weekend_raytracing_with_wgpu_2/)
+    fn uncharted2(x: Vec3) -> Vec3 {
+        // let exposure_bias = 0.246; // determined experimentally for the scene
+        let exposure_bias = 1.0;
+
+        let curr = World::uncharted2_tonemap(exposure_bias * x);
+
+        let w = 11.2;
+        let white_scale = Vec3::ONE.component_div(&World::uncharted2_tonemap(Vec3::new(w, w, w)));
+        white_scale.component_mul(&curr)
+    }
+
+    // TODO: stop clamping any colors before the final display in the window
+    // only tonemap them right before. that way shit can have greater contrast and emit light
+    // wait is that even true? hmmmmmmmmmmmmmmmmmmmmmmmmmm
+    pub fn sky_color_toward(&self, direction: &Vec3) -> Vec3 {
+        let theta = direction.z.acos() as f32;
+        let gamma = direction.dot(&self.sun_direction).clamp(-1.0, 1.0) as f32;
+        let color = Vec3::new(
+            self.sky.radiance(theta, gamma, Channel::R).into(),
+            self.sky.radiance(theta, gamma, Channel::G).into(),
+            self.sky.radiance(theta, gamma, Channel::B).into(),
+        );
+        World::uncharted2(color)
     }
 }
 
@@ -44,6 +103,7 @@ pub enum Shape {
 }
 
 // no fucking way this guy is literally me https://old.reddit.com/r/rust/comments/tgwpo7/avoiding_bad_patterns/
+// he's even building a ray tracer + doing this because he heard it was faster
 // TODO: kill the man who made the enum_dispatch library without support for supertraits
 impl Bounded<Float, 3> for Shape {
     fn aabb(&self) -> Aabb<Float, 3> {

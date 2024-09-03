@@ -202,10 +202,9 @@ impl Camera {
                 Vec3::new(0.0, 0.0, 0.0) // Light was absorbed, not scattered
             }
         } else {
-            // Skybox
-            let unit_dir = ray.direction.normalize();
-            let a = (unit_dir.y + 1.0) / 2.0;
-            Vec3::ONE * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
+            // Ray missed all other objects and hit the sky box
+            let direction = ray.direction.normalize();
+            world.sky_color_toward(&direction)
         }
     }
 
