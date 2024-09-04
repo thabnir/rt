@@ -67,7 +67,7 @@ impl World {
     /// [Taken from this blog post](https://nelari.us/post/weekend_raytracing_with_wgpu_2/)
     fn uncharted2(x: Vec3) -> Vec3 {
         // let exposure_bias = 0.246; // determined experimentally for the scene
-        let exposure_bias = 1.0;
+        let exposure_bias = 1.1;
 
         let curr = World::uncharted2_tonemap(exposure_bias * x);
 
@@ -158,18 +158,22 @@ pub struct Triangle {
 
 impl Triangle {
     pub fn new(a: Point3, b: Point3, c: Point3, material: Arc<Material>) -> Self {
-        let ac = c - a;
-        let bc = c - b;
-        // relies on the order of a, b, c in the definition for the "front face" direction
-        // TODO: the normal for the triangle is NOT correct
+        // Normalizing early and often to avoid numerical errors
+        // Shouldn't matter for performance since shapes are only created once
+        let ab = (b - a).normalize();
+        let ac = (c - a).normalize();
         Triangle {
             a,
             b,
             c,
-            normal: ac.cross(&bc), // TODO: does this make sense?
+            normal: ab.cross(&ac).normalize(),
             material,
             node_index: 0,
         }
+    }
+
+    pub fn new_opposite_normal(a: Point3, b: Point3, c: Point3, material: Arc<Material>) -> Self {
+        Self::new(c, b, a, material)
     }
 
     pub fn transform(&self, matrix: &Matrix4<Float>) -> Self {
