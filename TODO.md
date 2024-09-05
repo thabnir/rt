@@ -72,6 +72,8 @@ If I ever implement GPU support:
 
 - [ ] Image denoising (I know literally nothing about this)
 
+- [x] Russian Roulette for unbiased early termination on low-impact rays
+
 ## User Features
 
 - [x] Progressive rendering preview with multiple sweeps

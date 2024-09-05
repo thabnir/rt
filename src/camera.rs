@@ -6,7 +6,7 @@ use crate::{
 };
 use indicatif::{ParallelProgressIterator, ProgressIterator};
 use itertools::Itertools;
-use rand::thread_rng;
+use rand::{thread_rng, Rng};
 use rayon::prelude::*;
 use std::{
     fs::File,
@@ -187,14 +187,35 @@ impl Camera {
         }
     }
 
+    /// Returns whether the ray survives
+    /// TODO: benchmark this shit in both MSE and speed (or some weird combined MSE/second unit)
+    fn russian_roulette(&self, ray_color: Vec3) -> Option<Vec3> {
+        // TODO: how to add a constant parameter to this so that it on average keeps more rays than as is
+        let continue_probability = ray_color.max();
+        // Has to be max otherwise the largest color value could exceed 1.0 if the mean was less than 1.0
+        // ex: (1.0, 0.0, 0.0) -> mean of 1/3 -> probability 1/3 -> (3.0, 0.0, 0.0) BROKEN!!!
+        // This also holds for functions that can return a value less the the max
+        // May or may not be fixed by having colors in a non [0,1] range but tbh i have no idea
+        // maybe treating colors as probabilities will come back to bite me when i implement emissives...
+        if thread_rng().gen_bool(continue_probability) {
+            Some(ray_color * 1.0 / continue_probability)
+        } else {
+            None
+        }
+    }
+
     /// Fires a ray from the camera into the world and recursively bounces to determine the ray's color
-    fn raycast(&self, world: &World, ray: &Ray, max_depth: usize) -> Vec3 {
+    fn raycast(&self, world: &World, ray: &Ray, depth: usize) -> Vec3 {
         if let Some(hit) = world.hit(ray, &(0.001..self.t_range.end)) {
             if let Some((attenuation, scattered)) = hit.material.scatter(ray, &hit) {
-                // Recursively send out new rays as they bounce until the depth limit
-                if max_depth > 0 {
-                    let bounced_ray = self.raycast(world, &scattered, max_depth - 1);
-                    attenuation.component_mul(&bounced_ray)
+                // Recursively send out new rays as they bounce until the depth limit or roulette
+                if depth < self.max_depth {
+                    if let Some(roulette_color) = self.russian_roulette(attenuation) {
+                        let bounced_ray = self.raycast(world, &scattered, depth + 1);
+                        roulette_color.component_mul(&bounced_ray)
+                    } else {
+                        Vec3::new(0.0, 0.0, 0.0) // Lost roulette
+                    }
                 } else {
                     Vec3::new(0.0, 0.0, 0.0) // Bounce limit reached
                 }
@@ -214,7 +235,7 @@ impl Camera {
             .map(|i| {
                 // TODO: the way this uses its "random" samples is really suspicious...
                 let ray = self.get_ray(x, y, i);
-                self.raycast(world, &ray, self.max_depth)
+                self.raycast(world, &ray, 0)
             })
             .sum::<Vec3>()
             / num_samples as Float // average color across all samples
