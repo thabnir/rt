@@ -1,7 +1,7 @@
 use crate::{
     camera::Float,
     material::Material,
-    vec3::{Point3, Ray, Vec3},
+    vec3::{Point3, Ray, Vec2, Vec3},
 };
 
 #[derive(Debug)]
@@ -11,8 +11,7 @@ pub struct Intersection<'a> {
     pub material: &'a Material,
     pub t: Float,
     pub is_front_face: bool,
-    pub u: Float,
-    pub v: Float,
+    pub uv: Vec2,
 }
 
 impl<'a> Intersection<'a> {
@@ -22,8 +21,7 @@ impl<'a> Intersection<'a> {
         t: Float,
         material: &'a Material,
         is_front_face: bool,
-        u: Float,
-        v: Float,
+        uv: Vec2,
     ) -> Self {
         Intersection {
             point,
@@ -31,8 +29,7 @@ impl<'a> Intersection<'a> {
             material,
             t,
             is_front_face,
-            u,
-            v,
+            uv,
         }
     }
 

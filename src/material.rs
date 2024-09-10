@@ -1,7 +1,7 @@
 use crate::{
-    camera::Float,
+    camera::{Float, Image},
     intersection::Intersection,
-    texture::{SolidColor, Texture, TextureEnum},
+    texture::{ImageTexture, SolidColor, Texture, TextureEnum},
     vec3::{Ray, Vec3, Vec3Ext},
 };
 use enum_dispatch::enum_dispatch;
@@ -14,11 +14,32 @@ pub enum Material {
     Metal,
     Dielectric,
 }
+
+impl Material {
+    // TODO: figure out materials
+    pub fn from_gltf(gltf_mat: gltf::Material, image: Option<Image>) -> Self {
+        let pbr = gltf_mat.pbr_metallic_roughness();
+        let fuzz = pbr.roughness_factor().into();
+        let color = pbr.base_color_factor().map(|x| x.into());
+
+        if let Some(image) = image {
+            let tex = ImageTexture::new(image).into();
+            return Metal::new(tex, Some(fuzz)).into();
+        }
+
+        let color = Vec3::new(color[0], color[1], color[2]);
+
+        Metal::new_solid(color, Some(fuzz)).into()
+    }
+}
 // TODO: change out uses of Vec3 for a Color type where applicable. Make said Color type.
 // Make invalid states unrepresentable and whatnot.
 
 #[enum_dispatch(Material)]
 pub trait Scatter: Send + Sync {
+    // TODO: I don't think this needs to be an option type?
+    // At the very least, between Lambertian, Dielectric, and Metal's `Scatter` implementations,
+    // there is not one instance in which `None` is returned
     fn scatter(&self, ray_in: &Ray, record: &Intersection) -> Option<(Vec3, Ray)>;
 }
 
@@ -79,9 +100,9 @@ impl Scatter for Metal {
             reflect(ray_in.direction, intersection.normal)
         };
         let scattered = Ray::new(intersection.point.into(), reflected_dir);
-        let attenuation = self
-            .texture
-            .value(intersection.u, intersection.v, intersection.point);
+        let attenuation =
+            self.texture
+                .value(intersection.uv.x, intersection.uv.y, intersection.point);
         Some((attenuation, scattered))
     }
 }
@@ -93,7 +114,7 @@ impl Scatter for Lambertian {
             scatter_dir = hit.normal;
         }
         let scattered = Ray::new(hit.point.into(), scatter_dir);
-        let attenuation = self.texture.value(hit.u, hit.v, hit.point);
+        let attenuation = self.texture.value(hit.uv.x, hit.uv.y, hit.point);
         Some((attenuation, scattered))
     }
 }
@@ -102,11 +123,23 @@ impl Scatter for Lambertian {
 pub struct Dielectric {
     /// Refractive index in vacuum or air, or the ratio of the material's RI over the RI of the enclosing medium
     pub refractive_index: Float,
+    /// Controls the amount of "fuzz" on the surface. Higher values make the glass look frosted
+    pub fuzz: Option<Float>,
 }
 
 impl Dielectric {
     pub fn new(refractive_index: Float) -> Self {
-        Dielectric { refractive_index }
+        Dielectric {
+            refractive_index,
+            fuzz: None,
+        }
+    }
+
+    pub fn new_frosted(refractive_index: Float, fuzz: Float) -> Self {
+        Dielectric {
+            refractive_index,
+            fuzz: Some(fuzz),
+        }
     }
 
     pub fn new_inside_other(material_index: Float, container_index: Float) -> Self {
@@ -128,14 +161,20 @@ impl Scatter for Dielectric {
         let sin_theta = (1.0 - cos_theta * cos_theta).sqrt(); // sin^2(x) + cos^2(x) = 1
         let cannot_refract = ri * sin_theta > 1.0;
 
-        let noise = thread_rng().gen_range(0.0..1.0);
+        let noise = thread_rng().gen_range(0.0..=1.0);
 
         let direction = if cannot_refract || reflectance(cos_theta, ri) > noise {
             reflect(incoming_direction, record.normal)
+        } else if let Some(surface_fuzz) = self.fuzz {
+            refract(incoming_direction, record.normal, ri)
+                + Vec3::random_unit(&mut thread_rng()) * surface_fuzz
         } else {
             refract(incoming_direction, record.normal, ri)
         };
-        Some((Vec3::ONE, Ray::new(record.point.into(), direction)))
+        Some((
+            Vec3::ONE,
+            Ray::new(record.point.into(), direction.normalize()),
+        ))
     }
 }
 

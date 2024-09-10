@@ -2,7 +2,7 @@ use crate::{
     camera::Float,
     intersection::Intersection,
     material::Material,
-    vec3::{Point3, Ray, RayExt, Vec3, Vec3Ext},
+    vec3::{Point3, Ray, RayExt, Vec2, Vec3, Vec3Ext},
 };
 use bvh::{
     aabb::{Aabb, Bounded},
@@ -46,6 +46,8 @@ impl World {
     }
 
     // Taken from this blog post: https://nelari.us/post/weekend_raytracing_with_wgpu_2/
+    // Notes on tomemapping and color space transformations: https://computergraphics.stackexchange.com/questions/10315/tone-mapping-vs-gamma-correction
+    // In essence: yes, keep the gamma correction at the end.
     fn uncharted2_tonemap(x: Vec3) -> Vec3 {
         let a = 0.15;
         let b = 0.50;
@@ -147,10 +149,14 @@ impl Hit for World {
 }
 
 // TODO: look up best design practices for triangles in a ray tracer
+#[derive(Debug)]
 pub struct Triangle {
     pub a: Point3,
     pub b: Point3,
     pub c: Point3,
+    pub uv_a: Vec2,
+    pub uv_b: Vec2,
+    pub uv_c: Vec2,
     normal: Vec3,
     pub material: Arc<Material>,
     node_index: usize,
@@ -166,6 +172,35 @@ impl Triangle {
             a,
             b,
             c,
+            uv_a: Vec2::new(0.0, 0.0), // 0.0, 0.0
+            uv_b: Vec2::new(1.0, 0.0), // 1.0, 0.0
+            uv_c: Vec2::new(0.5, 1.0), // 0.5, 1.0
+            normal: ab.cross(&ac).normalize(),
+            material,
+            node_index: 0,
+        }
+    }
+
+    pub fn new_with_uv(
+        a: Point3,
+        b: Point3,
+        c: Point3,
+        uv_a: Vec2,
+        uv_b: Vec2,
+        uv_c: Vec2,
+        material: Arc<Material>,
+    ) -> Self {
+        // Normalizing early and often to avoid numerical errors
+        // Shouldn't matter for performance since shapes are only created once
+        let ab = (b - a).normalize();
+        let ac = (c - a).normalize();
+        Triangle {
+            a,
+            b,
+            c,
+            uv_a,
+            uv_b,
+            uv_c,
             normal: ab.cross(&ac).normalize(),
             material,
             node_index: 0,
@@ -180,14 +215,25 @@ impl Triangle {
         let a = matrix.transform_vector(&self.a);
         let b = matrix.transform_vector(&self.b);
         let c = matrix.transform_vector(&self.c);
-        Triangle::new(a, b, c, self.material.clone())
+        Triangle::new_with_uv(
+            a,
+            b,
+            c,
+            self.uv_a,
+            self.uv_b,
+            self.uv_c,
+            self.material.clone(),
+        )
     }
 
     pub fn shift(&self, shift: Vec3) -> Self {
-        Triangle::new(
+        Triangle::new_with_uv(
             self.a + shift,
             self.b + shift,
             self.c + shift,
+            self.uv_a,
+            self.uv_b,
+            self.uv_c,
             self.material.clone(),
         )
     }
@@ -299,9 +345,9 @@ impl Hit for Sphere {
             normal = -normal; // Set the normal to always face outward
         }
 
-        let (u, v) = unit_sphere_uv_facing(normal, self.front_direction);
+        let uv = unit_sphere_uv_facing(normal, self.front_direction);
 
-        if u.is_nan() || v.is_nan() {
+        if uv.x.is_nan() || uv.y.is_nan() {
             // TODO: figure out how to avoid this
             // println!("bang");
             return None; // NaN occurs sometimes with glancing blows on the sphere
@@ -313,8 +359,7 @@ impl Hit for Sphere {
             t,
             &self.material,
             is_front_face,
-            u,
-            v,
+            uv,
         ))
     }
 }
@@ -327,7 +372,7 @@ pub fn unit_sphere_uv(
     pitch_rads: Float,
     yaw_rads: Float,
     rotation_rads: Float,
-) -> (Float, Float) {
+) -> Vec2 {
     let rotation_matrix = nalgebra::Rotation3::from_euler_angles(0.0, pitch_rads, 0.0)
         * nalgebra::Rotation3::from_euler_angles(0.0, 0.0, -yaw_rads);
 
@@ -339,12 +384,12 @@ pub fn unit_sphere_uv(
     let u = phi / TAU;
     let v = theta / PI;
 
-    (u, v)
+    Vec2::new(u, v)
 }
 
 /// Returns the `(u, v)` coordinates of an `intersection_point` on the unit sphere centered at the
 /// origin with the texture facing toward `face_dir`
-fn unit_sphere_uv_facing(intersection_point: Point3, face_dir: Vec3) -> (Float, Float) {
+fn unit_sphere_uv_facing(intersection_point: Point3, face_dir: Vec3) -> Vec2 {
     let pitch = face_dir
         .z
         .atan2((face_dir.y * face_dir.y + face_dir.x * face_dir.x).sqrt());
@@ -381,6 +426,7 @@ impl Hit for Triangle {
         // If backface culling is not desired write:
         // det < EPSILON && det > -EPSILON
         if det < Float::EPSILON {
+            // TODO: add flag for backface culling on triangles
             return None;
         }
 
@@ -416,14 +462,31 @@ impl Hit for Triangle {
             // TODO: verify this all. Much is handwaved and halfassed and untested
             let intersection_point = ray.origin.coords + ray.direction * dist;
             let is_front_face = ray.direction.dot(&self.normal) <= 0.0;
+
+            // Interpolate the UV coordinates at the hit point
+            // let uv_no_map = Vec2::new(u, v);
+
+            let left = self.uv_a.x.min(self.uv_b.x).min(self.uv_c.x);
+            let right = self.uv_a.x.max(self.uv_b.x).max(self.uv_c.x);
+
+            let bot = self.uv_a.y.min(self.uv_b.y).min(self.uv_c.y);
+            let top = self.uv_a.y.max(self.uv_b.y).max(self.uv_c.y);
+
+            let width = right - left;
+            let height = top - bot;
+
+            let u_mapped = left + width * u;
+            let v_mapped = bot + height * v;
+
+            let uv_hit = Vec2::new(u_mapped, v_mapped);
+
             Some(Intersection::new(
                 intersection_point,
                 self.normal,
                 dist,
                 &self.material,
                 is_front_face,
-                u,
-                v,
+                uv_hit,
             ))
         } else {
             None
@@ -488,4 +551,83 @@ pub fn load_obj(
     }
 
     models_triangled
+}
+
+pub fn load_gltf(file_path: &str, _mesh_material: Arc<Material>) -> Vec<Vec<Triangle>> {
+    let (gltf, buffers, images) = gltf::import(file_path)
+        .unwrap_or_else(|_| panic!("gltf loader failed to read {}", file_path));
+    let mut meshes = Vec::new();
+
+    for mesh in gltf.meshes() {
+        // Note: gltf only supports triangles, which is why I only handle tris
+        for triangle in mesh.primitives() {
+            let reader = triangle.reader(|buffer| Some(&buffers[buffer.index()]));
+
+            let material = triangle.material();
+
+            let mut texture_image = None;
+
+            if let Some(texture_info) = material.pbr_metallic_roughness().base_color_texture() {
+                let texture = texture_info.texture();
+                let source = texture.source();
+                let image = &images[source.index()];
+                let im: crate::camera::Image = image.into();
+
+                texture_image = Some(im); // Replace `Image::from` with your image handling method
+            }
+
+            let mesh_material = Arc::new(Material::from_gltf(material, texture_image));
+
+            if let (Some(indices), Some(positions)) =
+                (reader.read_indices(), reader.read_positions())
+            {
+                let indices: Vec<u32> = indices.into_u32().collect(); // Convert indices to u32
+                let positions: Vec<[f32; 3]> = positions.collect(); // Collect positions
+                                                                    //
+                let tex_coords: Vec<[f32; 2]> = reader
+                    .read_tex_coords(0)
+                    .map(|coords| coords.into_f32().collect())
+                    .expect("no tex coords"); // Read texture coordinates
+
+                let tris: Vec<Triangle> = indices
+                    .par_chunks_exact(3)
+                    .map(|tri_indices| {
+                        let points: Vec<Point3> = tri_indices
+                            .iter()
+                            .map(|&index| {
+                                let pos = positions[index as usize]; // Get position by index
+                                Point3::new(
+                                    Float::from(pos[0]),
+                                    Float::from(pos[1]),
+                                    Float::from(pos[2]),
+                                )
+                            })
+                            .collect();
+
+                        let uvs: Vec<Vec2> = tri_indices
+                            .iter()
+                            .map(|&idx| {
+                                let uv = tex_coords[idx as usize];
+                                Vec2::new(uv[0] as Float, uv[1] as Float)
+                            })
+                            .collect();
+
+                        // TODO: make this use new instead of new_with_uv when None
+                        // though tbh it doesn't actually matter since textures shouldn't be used for a mesh with no texture map defined
+                        Triangle::new_with_uv(
+                            points[0],
+                            points[1],
+                            points[2],
+                            uvs[0],
+                            uvs[1],
+                            uvs[2],
+                            mesh_material.clone(),
+                        )
+                    })
+                    .collect();
+                meshes.push(tris)
+            }
+        }
+    }
+    meshes
 }

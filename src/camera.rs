@@ -4,6 +4,7 @@ use crate::{
     material::Scatter,
     vec3::{Point3, Ray, Vec3, Vec3Ext},
 };
+use image::GenericImageView;
 use indicatif::{ParallelProgressIterator, ProgressIterator};
 use itertools::Itertools;
 use rand::{thread_rng, Rng};
@@ -11,7 +12,7 @@ use rayon::prelude::*;
 use std::{
     fs::File,
     io::{BufWriter, Write},
-    ops::Range,
+    ops::{Index, Range},
 };
 
 pub type Float = f64;
@@ -22,32 +23,119 @@ pub const T_MAX: Float = Float::MAX;
 
 #[derive(Default)]
 pub struct Camera {
+    /// Defines the center point of the camera
     pub center: Point3,
+    /// Defines the rendered image's width in pixels
     pub image_width: usize,
+    /// Defines the rendered image's height in pixels
     pub image_height: usize,
+    /// If using batch mode, defines the number of samples per pixel in the rendered image
+    /// If rendering with live preview window, this parameter does nothing.
     samples_per_pixel: usize,
+    /// Defines the maximum number of times a ray may bounce in a scene, i.e. the depth limit
     max_depth: usize,
+    /// Defines the amount of defocus blur in the camera, with 0.0 being perfectly sharp everywhere
     defocus_angle: Float,
     defocus_disk_u: Vec3,
     defocus_disk_v: Vec3,
+    /// Stores the location of the top left pixel in the camera in 3D space
     pub pixel00_loc: Vec3,
+    /// Stores the horizontal distance between pixels in 3D space
     pub pixel_du: Vec3,
+    /// Stores the vertical distance between pixels in 3D space
     pub pixel_dv: Vec3,
+    /// Defines the minimum and maximum distances from the camera to be rendered
     t_range: Range<Float>,
-    rng_map: Vec<(Float, Float)>, // Defines the "random" sequnece for pixel samples. Halton sequence for now
+    /// Defines the "random" sequnece for pixel samples. Halton sequence for now
+    rng_map: Vec<(Float, Float)>,
 }
 
 pub type Pixel = (usize, usize, Vec3);
 
 #[derive(Default)]
 pub struct Image {
-    pub colors: Vec<Pixel>,
+    pub pixels: Vec<Pixel>,
     pub width: usize,
     pub height: usize,
 }
 
+impl From<image::DynamicImage> for Image {
+    fn from(image: image::DynamicImage) -> Self {
+        let pixels = image
+            .pixels()
+            .map(|(x, y, color)| {
+                let c = image::Pixel::channels(&color);
+                let r = c[0] as Float / 255.0;
+                let g = c[1] as Float / 255.0;
+                let b = c[2] as Float / 255.0;
+                (x as usize, y as usize, Vec3::new(r, g, b)) as Pixel
+            })
+            .collect();
+
+        Image {
+            pixels,
+            width: image.width() as usize,
+            height: image.height() as usize,
+        }
+    }
+}
+
+impl From<&gltf::image::Data> for Image {
+    fn from(image: &gltf::image::Data) -> Self {
+        // TODO: this is sus as hell and has not been tested very much at all
+        let (chunk_size, max) = match image.format {
+            gltf::image::Format::R8 => (1, u8::MAX as u64),
+            gltf::image::Format::R8G8 => (2, u8::MAX as u64),
+            gltf::image::Format::R8G8B8 => (3, u8::MAX as u64),
+            gltf::image::Format::R8G8B8A8 => (4, u8::MAX as u64),
+            gltf::image::Format::R16 => todo!("red16"),
+            gltf::image::Format::R16G16 => (2, u16::MAX as u64),
+            gltf::image::Format::R16G16B16 => (3, u16::MAX as u64),
+            gltf::image::Format::R16G16B16A16 => todo!("rgba16"),
+            gltf::image::Format::R32G32B32FLOAT => todo!("rgb_float32"),
+            gltf::image::Format::R32G32B32A32FLOAT => todo!("rgba_float32"),
+            // I don't even know what these strange formats are, i have no business writing
+            // code for them
+            // gltf::image::Format::R16G16B16A16 => (4, u16::MAX as u64),
+            // gltf::image::Format::R32G32B32FLOAT => (3, f32::MAX as u64),
+            // gltf::image::Format::R32G32B32A32FLOAT => (4, f32::MAX as u64),
+        };
+
+        let pixels: Vec<Pixel> = image
+            .pixels
+            .par_chunks_exact(chunk_size)
+            .enumerate()
+            .map(|(i, chunk)| {
+                let x = i % image.width as usize;
+                let y = i / image.width as usize;
+                let c = Vec3::new(
+                    chunk[0] as Float / max as Float,
+                    *chunk.get(1).unwrap_or(&0) as Float / max as Float,
+                    *chunk.get(2).unwrap_or(&0) as Float / max as Float,
+                );
+                (x, y, c)
+            })
+            .collect::<_>();
+        Image {
+            pixels,
+            width: image.width as usize,
+            height: image.height as usize,
+        }
+    }
+}
+
+impl Index<(usize, usize)> for Image {
+    type Output = Vec3; // Color
+
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        let (x, y) = index;
+        &self.pixels[y * self.width + x].2
+    }
+}
+
 // Used to generate pixel sample offset values for rays for faster convergence / less noise
 // Maybe use a uniform pattern instead? Need to do more research into this...
+// TODO: read this https://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 // https://en.wikipedia.org/wiki/Halton_sequence
 fn halton_sequence(base: u64, sequence_length: u64) -> impl std::iter::Iterator<Item = Float> {
     // TODO: there's no fucking way mine works right if this is how much they're doing for this
@@ -212,16 +300,11 @@ impl Camera {
                 if depth < self.max_depth {
                     if let Some(roulette_color) = self.russian_roulette(attenuation) {
                         let bounced_ray = self.raycast(world, &scattered, depth + 1);
-                        roulette_color.component_mul(&bounced_ray)
-                    } else {
-                        Vec3::new(0.0, 0.0, 0.0) // Lost roulette
+                        return roulette_color.component_mul(&bounced_ray);
                     }
-                } else {
-                    Vec3::new(0.0, 0.0, 0.0) // Bounce limit reached
                 }
-            } else {
-                Vec3::new(0.0, 0.0, 0.0) // Light was absorbed, not scattered
             }
+            Vec3::new(0.0, 0.0, 0.0) // Light was absorbed, not scattered
         } else {
             // Ray missed all other objects and hit the sky box
             let direction = ray.direction.normalize();
@@ -251,7 +334,7 @@ impl Camera {
             .collect::<_>();
 
         Image {
-            colors,
+            pixels: colors,
             width: self.image_width,
             height: self.image_height,
         }
@@ -268,7 +351,7 @@ impl Camera {
         buf_writer.write_all(header.as_bytes())?;
 
         // Write the colors in the PPM format with integer RGB values in [0, 255]
-        for (x, _y, color) in image.colors.into_iter().progress() {
+        for (x, _y, color) in image.pixels.into_iter().progress() {
             buf_writer.write_all(color.as_rgb_gamma_string().as_bytes())?;
             if x == image.width - 1 {
                 buf_writer.write_all("\n".as_bytes())?;

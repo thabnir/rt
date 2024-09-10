@@ -6,7 +6,10 @@ use crate::{
 use core::array;
 use indicatif::ParallelProgressIterator;
 use pixels::{Error, Pixels, SurfaceTexture};
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::{
+    iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator},
+    slice::ParallelSlice,
+};
 use std::{
     fs::File,
     ops::Deref,
@@ -109,23 +112,22 @@ pub fn render_with_preview(camera: Camera, world: World) -> Result<(), Error> {
                                 let buffer = render_buffer.read().unwrap();
                                 copy_buf.clone_from_slice(buffer.deref());
                             }
-                            let colors = copy_buf
-                                .par_iter()
-                                .chunks(4)
+                            let pixels = copy_buf
+                                .par_chunks(4)
                                 .enumerate()
                                 .map(|(i, chunk)| {
                                     let x = i % WIDTH as usize;
                                     let y = i / WIDTH as usize;
                                     let c = Vec3::new(
-                                        *chunk[0] as Float / 255.0,
-                                        *chunk[1] as Float / 255.0,
-                                        *chunk[2] as Float / 255.0,
+                                        chunk[0] as Float / 255.0,
+                                        chunk[1] as Float / 255.0,
+                                        chunk[2] as Float / 255.0,
                                     );
                                     (x, y, c)
                                 })
                                 .collect::<_>();
                             let image = Image {
-                                colors,
+                                pixels,
                                 width: WIDTH as usize,
                                 height: HEIGHT as usize,
                             };

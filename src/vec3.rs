@@ -5,6 +5,7 @@ use rand::Rng;
 
 pub type Ray = bvh::ray::Ray<Float, 3>;
 pub type Vec3 = nalgebra::Vector3<Float>;
+pub type Vec2 = nalgebra::Vector2<Float>;
 // pub type Point3 = nalgebra::Point3<Float>;
 pub type Point3 = nalgebra::Vector3<Float>; // TODO: make this use Point3 instead
 
