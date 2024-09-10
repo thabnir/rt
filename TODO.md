@@ -17,27 +17,57 @@ Read more and learn more
 - [Blogpost 1](https://nelari.us/post/weekend_raytracing_with_wgpu_1/)
 - [Blogpost 2](https://nelari.us/post/weekend_raytracing_with_wgpu_2/)
 
+[WebGPU Interactive Ray Tracer](https://github.com/nelarius/rayfinder)
+
+- [Blogpost 1](https://nelari.us/post/pathtracer_devlog/)
+
 If I ever implement GPU support:
 
 - [wgpu](https://github.com/gfx-rs/wgpu) WebGPU for Rust
 - [vulkano](https://github.com/vulkano-rs/vulkano) Vulkan for Rust (would be faster since Vulkan exposes ray tracing functionality, but probably won't use it, since I want this to work on all of my computers without much hassle)
 
+## Important:
+
+- Refactor color. The progressive renderer should never touch a 0-256 RGB value. 8-bit RGB colors should NEVER be converted to color `Vec3`s.
+- Figure out how color values greater than 1.0 work and if they should ever be possible
+
 ## Bugs
 
-- I don't think my Halton sampling actually works right
-- Weird floating point shadow acne type errors near the top of very large spheres when using f32 instead of f64 (damn you, floating point numbers) (visually patterned when using Halton sampling instead of `thread_rng()` as the source of randomness for ray sampling)
+- [ ] Sphere textures have rendered upside-down ever since I changed the UV mapping code to make it not upside-down for meshes
+- [ ] I don't think my Halton sampling actually works right. TODO: [read this](https://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/)
+- [x] Weird floating point shadow acne type errors near the top of very large spheres when using `f32` instead of `f64` (damn you, floating point numbers)
+  - The noise is visually ripple-patterned when using Halton sampling instead of `thread_rng()` as the source of randomness for ray sampling
+  - This is currently "solved" by using `f64` and no large spheres
 - Can't make the camera look straight down or up or the entire thing totally crashes and explodes
-- Meshes are sometimes sort of transparent in a weird way when they absolutely should NOT be. Happens with metals for sure, likely other materials too.
+- [x] Meshes are sometimes sort of transparent in a weird way when they absolutely should NOT be. Happens with metals for sure, likely other materials too.
+  - Fixed! The normals of triangles weren't actually being normalized on calculation, which caused many issues.
 
 ## Rendering Features
 
 - [ ] Shapes
 
   - [x] Spheres
-  - [ ] Quads
   - [x] Triangles
     - [x] Meshes / model importing
+      - [x] basic .obj support (no materials, only triangles)
+        - Likely that .obj support will be dropped in favor of gltf, since my gltf support is already much better, and it's way easier to find gltf scenes and models than for obj, and gltf is generally a better, more modern format.
+      - [x] .gltf support (basic materials and texturing support, triangles)
+  - [ ] Quads
+  - [ ] Arbitrary polygon primitives (for .obj if a mesh can't be triangulated)
   - [ ] Cubes
+
+- [ ] .gltf support
+
+  - [x] Meshes
+  - [x] Base color textures
+  - [x] Roughness/metallic fuzz textures
+  - [ ] Emission maps (or light emission of any kind, actually)
+  - [ ] Transparency maps
+  - [ ] Normal maps
+  - [ ] Cameras
+  - [ ] Performance improvements
+    - [ ] Not taking up 40GB RAM and then crashing while loading Sponza (or taking 30GB of RAM but running for the suit of armor)
+    - Maybe has to do with how images are stored? Have to do a memory profile to see what's getting me, then fix it.
 
 - [ ] Materials & Textures
 
@@ -46,29 +76,31 @@ If I ever implement GPU support:
   - [x] Glass (Dielectrics)
   - [ ] Emissives (goes with light sources)
   - [x] Texture maps
-    - [ ] Rotate spheres and their textures
+    - [x] Rotate spheres and their textures
+    - [x] Texture maps for meshes
   - [ ] Normal maps
   - [ ] Bump maps
-  - [ ] [Better sky model](https://nelari.us/post/weekend_raytracing_with_wgpu_2/)
-  - [ ] Mesh texturing system
+  - [x] [Better sky model](https://nelari.us/post/weekend_raytracing_with_wgpu_2/)
+  - [x] Mesh texturing system
 
 - [ ] Improved light rendering
 
-  - [ ] Lights
+  - [ ] Lights/emissives
 
     - [ ] Point lights
     - [ ] Surface lights
+    - [ ] Sun model (make it play nicely with sky model for a whole time-of-day system)
 
-  - [ ] Shadows
   - [ ] Specular highlights
   - [ ] Bloom
 
-- [ ] Volumes
+- [ ] Volumes (volumetric substances like smoke/fog)
 
 - [x] Improved camera simulation
 
   - [x] Depth of field
-  - [x] Motion blur
+  - [ ] <s>Motion blur</s> support dropped when I added the BVH.
+    - [ ] Re-add this feature? I believe this requires a time value for every ray-object intersection, which I can't do when using the `bvh` crate since they use their own custom ray type. Would have to find a workaround or alternate method.
 
 - [ ] Image denoising (I know literally nothing about this)
 
@@ -79,6 +111,9 @@ If I ever implement GPU support:
 - [x] Progressive rendering preview with multiple sweeps
 
   - [ ] Live gamma correction (figure out exactly what gamma correction is, too)
+    - [ ] Figure out how exactly tonemapping plays into the rendering pipeline.
+    - [ ] Figure out color values and emissive stuff.
+    - Could probably do tonemapping and gamma correction on the GPU via a simple fragment shader to get it to run in real time.
 
 - [ ] Live interactivity & re-rendering
 
@@ -99,9 +134,10 @@ If I ever implement GPU support:
       - [parallel ray tracer with wasm-bindgen for Rayon](https://rustwasm.github.io/docs/wasm-bindgen/examples/raytrace.html)
 
 - [ ] CLI or file-based rendering support
-  - [ ] Scene descriptions and settings files [JSON?](https://blog.singleton.io/posts/2022-01-02-raytracing-with-rust/#read-scene-data-from-json-file)
-  - [ ] Default camera settings
-  - Probably not to do until much later in the project. Don't need to calcify a scene description format when most of the requisite features aren't in place.
+  - [ ] <s>Scene descriptions and settings files [JSON?](https://blog.singleton.io/posts/2022-01-02-raytracing-with-rust/#read-scene-data-from-json-file)
+  - Probably not to do until much later in the project. Don't need to calcify a scene description format when most of the requisite features aren't in place.</s>
+  - Just using .gltf instead since that's what actual 3d scenes use so I can yoink and render from online
+    - [ ] Add a CLI to specify which .gltf scene to render
 
 ## Optimizations
 
@@ -112,8 +148,6 @@ If I ever implement GPU support:
 - [x] Bounding Volume Hierarchy
 
 - [ ] SIMD for rays and pixels.
-
-  - Shouldn't be too hard to implement.
 
 - [ ] Improve sampling efficiency
 
