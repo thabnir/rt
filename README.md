@@ -10,7 +10,7 @@ Some of its features include:
 - Meshes and mesh importing from [.gltf](https://github.com/gltf-rs/gltf) and [.obj](https://github.com/Twinklebear/tobj) files
 - Texture and metallic roughness mapping for meshes
 - A fancier [sky model](https://github.com/phoekz/hw-skymodel)
-- Frosted/fuzzy glass materials
+- Frosted/fuzzy glass materials (vibes-based rendering technique)
 - A bounding volume hierarchy I borrowed from [bvh](https://github.com/svenstaro/bvh) for faster ray intersection detection
 - Enough parallelism using [Rayon](https://github.com/rayon-rs/rayon) to turn my laptop into a heater
 
@@ -23,6 +23,13 @@ Supports a live progressive render preview using [winit](https://github.com/rust
 https://github.com/user-attachments/assets/73a87dbe-7503-44db-82e9-313ffc7b4dbb
 
 ## Sample Renders
+
+![skull_night](https://github.com/user-attachments/assets/0d542f00-bdcf-414d-817b-d7657aa087a8)
+![skull_night_grainy](https://github.com/user-attachments/assets/b26f7f8a-cb54-4346-be83-c0f51fa5e433)
+![skull_light](https://github.com/user-attachments/assets/09625c35-79b4-4e29-8c20-c3d41cfe571b)
+![nightcar](https://github.com/user-attachments/assets/eb8f3680-9702-4185-a4c4-3690cd62407c)
+![nightcar_fancy](https://github.com/user-attachments/assets/f20220e9-4138-44bf-86de-a25792acaeb9)
+
 
 ### Giant Saul Goodman & Dodge Charger
 
